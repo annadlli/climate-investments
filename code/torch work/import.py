@@ -10,8 +10,15 @@ apikey = "akv1_rmWv0DXQ-2jsoB2tLp9csaYBx7X_xIWBYg6"
 # -------------------------
 # API endpoints
 # -------------------------
-attom = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_ks3rkz8mtfkruiio"
-builty = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_garggg9vj69evxb3"
+#attom = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_ks3rkz8mtfkruiio"
+#builty = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_garggg9vj69evxb3"
+
+apis = {
+    "as":    "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_kzrvefep8ocd7anv",
+    "fl":    "https://api.deweydata.io/api/v1/external/data/prj_yztqvhz7__cdst_iwgbxnjzqsqarvog",
+    "fllee": "https://api.deweydata.io/api/v1/external/data/prj_yztqvhz7__cdst_aeyicdusvevj69md",
+    "ctok":  "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_v8ncwsgi9oa7prnx",
+}
 
 # -------------------------
 # Base directory (HPC)
@@ -25,30 +32,19 @@ data_dir = os.path.join(base_dir, "data")
 run_id = datetime.now().strftime("run_%Y%m%d_%H%M%S")
 run_dir = os.path.join(data_dir, run_id)
 
-attom_dir = os.path.join(run_dir, "attom")
-builty_dir = os.path.join(run_dir, "builty")
-
-os.makedirs(attom_dir, exist_ok=True)
-os.makedirs(builty_dir, exist_ok=True)
-
 print(f"Run directory: {run_dir}")
 
 # -------------------------
-# Download ATTOM
+# Download each API into its own subfolder
 # -------------------------
-print("Fetching ATTOM file list...")
-attom_files = ddp.get_file_list(apikey, attom, print_info=True)
+for name, url in apis.items():
+    out_dir = os.path.join(run_dir, name)
+    os.makedirs(out_dir, exist_ok=True)
 
-print("Downloading ATTOM files...")
-ddp.download_files(attom_files, attom_dir)
+    print(f"Fetching {name} file list...")
+    files = ddp.get_file_list(apikey, url, print_info=True)
 
-# # -------------------------
-# # Download BUILTY
-# # -------------------------
-# print("Fetching BUILTY file list...")
-# builty_files = ddp.get_file_list(apikey, builty, print_info=True)
+    print(f"Downloading {name} files to {out_dir}...")
+    ddp.download_files(files, out_dir)
 
-# print("Downloading BUILTY files...")
-# ddp.download_files(builty_files, builty_dir)
-
-# print("All downloads complete.")
+print("All downloads complete.")
