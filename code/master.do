@@ -1,64 +1,90 @@
-// update: June 3, 2026
-// Master script for climate-investments project
+/******************************************************************************
+Authors: Anna Li and Vendela Norman
+Date: 2026-06-05
 
+Description: Runs the data-construction pipeline for the climate-investments
+    project (clean -> build). Toggle the switches in Section 1, then run.
+    Analysis and descriptives are run separately (see code/analysis, code/descriptives).
+
+Notes: Set the two roots below per machine -- `code' (this git repo) and `data'
+    (Dropbox). Every path derives from them; nothing else is machine-specific.
+    Raw ATTOM/BUILTY parquet are created upstream from the Dewey API (torch_work/).
+    filter_builty_strict.py and attom_onto_permits.py are pending Anna's revised
+    versions (lost work) -- those steps will not run end-to-end yet.
+******************************************************************************/
+
+version 18
 clear all
 set more off
 
-cd "/Users/anna/Desktop/Research/climate-investments"
+* -----------------------------------------------------------------------------
+* Paths  
+* -----------------------------------------------------------------------------
+* --- Vendela ---
+local code "/Users/vendelasolvindnorman/Documents/Econ_PhD/Projects/climate-investments/code"
+local data "/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Data"
 
-*************************************************************
-* Define folders
-*************************************************************
-global code     "$c(pwd)/code"
-global raw      "$code/raw"
-global clean    "$code/clean"
-global build    "$code/build"
-global analysis "$code/analysis"
+* --- Anna ---
+/* local code "/Users/anna/Desktop/Research/climate-investments/code"
+local data "/Users/anna/Desktop/Research/climate-investments/data" */
 
-global data     "$c(pwd)/data"
-global dclean   "$data/clean"
-global dbuild   "$data/build"
+local python "python3"
 
-*************************************************************
-* Raw code files
-* Raw ATTOM and BUILTY files were created by:
-*   python import.py
-*   python compile_builty.py
-*************************************************************
+* -----------------------------------------------------------------------------
+* Section 1: Set switches  (1 = run, 0 = skip)
+* -----------------------------------------------------------------------------
 
-*************************************************************
-* Clean code files
-*************************************************************
-do "$raw/create_clean_files.do"
+// i) Clean 
+local clean_hma            = 0
+local clean_nfip_claims    = 0
+local clean_nfip_policies  = 0
 
-*************************************************************
-* Build code files
-*************************************************************
+// ii) Build 
+local filter_builty        = 0    // PENDING Anna's revised filter_builty_strict.py
+local split_states         = 0
+local match_attom          = 0    // PENDING Anna's revised attom_onto_permits.py
+local make_dta             = 0
+local build_nfip           = 0    // see header: needs reconciling with clean_nfip_claims.do
+local build_panels         = 0
 
-* 1. Strictly filter BUILTY elevation permits: TO BE REVISED
-shell python "$build/filter_builty_strict.py"
+* -----------------------------------------------------------------------------
+* Section 2: Run code    
+* -----------------------------------------------------------------------------
 
-* 2. Split filtered BUILTY data into TX and VA state parquet files
-shell python "$build/split_builty_states.py" ///
-    --input "$dclean/all_elevation.parquet" ///
-    --out-dir "$dbuild" ///
-    --states TX VA
+// i) Clean
+if `clean_hma' == 1 {
+    do "`code'/clean/clean_hma.do" "`data'"
+}
+if `clean_nfip_claims' == 1 {
+    do "`code'/clean/clean_nfip_claims.do" "`data'"
+}
+if `clean_nfip_policies' == 1 {
+    do "`code'/clean/clean_nfip_policies.do" "`data'"
+}
 
-* 3. Match ATTOM onto permits // TO BE REVISED
-shell python "$build/attom_onto_permits.py" --state TX
-shell python "$build/attom_onto_permits.py" --state VA
+// ii) Build
+if `filter_builty' == 1 {
+    shell `python' "`code'/build/filter_builty_strict.py"
+}
+if `split_states' == 1 {
+    shell `python' "`code'/build/split_builty_states.py" ///
+        --input "`data'/clean/all_elevation.parquet" ///
+        --out-dir "`data'/build" ///
+        --states TX VA
+}
+if `match_attom' == 1 {
+    shell `python' "`code'/build/attom_onto_permits.py" --state TX
+    shell `python' "`code'/build/attom_onto_permits.py" --state VA
+}
+if `make_dta' == 1 {
+    shell `python' "`code'/build/parquetdta.py" --state TX --data "`data'"
+    shell `python' "`code'/build/parquetdta.py" --state VA --data "`data'"
+}
+if `build_nfip' == 1 {
+    do "`code'/build/nfip_build.do" "`data'"
+}
+if `build_panels' == 1 {
+    do "`code'/build/build_nfip_hma_panels.do" "`data'"
+}
 
-* 4. Convert matched parquet files to Stata .dta
-shell python "$build/parquetdta.py" --state TX
-shell python "$build/parquetdta.py" --state VA
-
-* 5. Build NFIP files
-do "$build/nfip_build.do"
-
-* 6. Build NFIP-HMA panels
-do "$build/build_nfip_hma_panels.do"
-
-*************************************************************
-* Analysis code files
-*************************************************************
- do "$analysis/april_17_descriptives.do" //to be revised
+// iii) Analysis (TBD)

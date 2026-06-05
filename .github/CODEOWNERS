@@ -1,0 +1,9 @@
+# Code owners — GitHub requires the listed owner's review to merge changes to these paths.
+# Only enforced once branch protection on `main` has "Require review from Code Owners" enabled
+# (Settings → Branches → Branch protection rules).
+#
+# NOTE: this repo lives on github.com/annadlli (Anna's account). CODEOWNERS gates non-admin
+# contributors, but the repo owner/admin can bypass it — so this is a review gate + ownership
+# signal, not a hard lock. (Vendela = @vsn2014.)
+
+/code/CONVENTIONS.md   @vsn2014

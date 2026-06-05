@@ -1,23 +1,25 @@
-********************************************************************************
+/******************************************************************************
+Authors: Anna Li and Vendela Norman
+Date: 2026-05-29
 
-* nfip_build.do
-* Creation date: 2026-05-29
-*Update date: 
+Description: Prepares the NFIP claims data and collapses to county x year. (The
+    full claims-to-property merge uses the Wagner tiered-cell method, applied in
+    build_nfip_hma_panels.do off the NFIP policies file.)
 
-*Preparing NFIP claims data for full merge. Merge will now be done using the method of Wagner
-/*
-*/
-********************************************************************************
+NOTE (needs reconciling with Anna): this reads clean/nfip_claims.dta and expects
+    variables (damage_ratio, substantially_damaged, got_icc, bldg_damage_amt,
+    bldg_claim_paid, icc_amount) that clean_nfip_claims.do does NOT currently
+    produce, and its county-year output is not consumed by
+    build_nfip_hma_panels.do -- so it will not run as-is. Left in place pending
+    reconciliation; paths parametrized, logic unchanged.
+******************************************************************************/
 
-clear all
-set more off
+* Data root passed from master.do as the first argument
+args data
+local clean "`data'/clean"
+local build "`data'/build"
 
-
-local root "/Users/anna/Desktop/Research/climate-investments"
-local clean "`root'/data/clean"
-local build "`root'/data/build"
-
-use "`root'/data/clean/nfip_claims.dta",clear
+use "`clean'/nfip_claims.dta", clear
 * Flag SFHA and eliminate them from sample
 *note: will use ratedfloodzone as measure, as that was how NFIP was actually used to price and rate
 *SFHA determined as FEMA describes: https://www.fema.gov/about/glossary/special-flood-hazard-area-sfha
@@ -103,4 +105,4 @@ tab year
 * 10. Save county × year file
 * -------------------------------------------------------
 sort fips_county year
-save "/Users/anna/Desktop/Research/climate-investments/data/fema/nfip_tx_countyyear.dta", replace
+save "`build'/nfip_tx_countyyear.dta", replace

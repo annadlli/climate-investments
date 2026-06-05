@@ -1,29 +1,28 @@
-* Build NFIP/HMA property- and county-level panels in Stata.
-*
-* Property level:
-*   base = data/build/{state}_attom_builty.dta
-*   NFIP matched with tiered Wagner-style policy-cell keys:
-*       1. ZIP x construction year x policy year
-*       2. ZIP x construction decade x policy year
-*       3. ZIP x policy year
-*       4. county x construction year x policy year
-*       5. county x policy year
-*   HMA merged at county x permit year.
-*
-* County level:
-*   base = union of HMA, NFIP, and all Builty elevation county-years.
-*   This is intentionally NOT restricted to Builty-ATTOM property matches.
+/******************************************************************************
+Authors: Anna Li and Vendela Norman
+Date: 2026-06-05
+
+Description: Builds the NFIP/HMA property- and county-level panels.
+    Property level: base = build/{state}_attom_builty.dta; NFIP matched with
+    tiered Wagner-style policy-cell keys (ZIP x construction-year x policy-year;
+    ZIP x construction-decade x policy-year; ZIP x policy-year; county x
+    construction-year x policy-year; county x policy-year); HMA merged at
+    county x permit-year.
+    County level: base = union of HMA, NFIP, and all Builty elevation
+    county-years -- intentionally NOT restricted to Builty-ATTOM matches.
+
+Outputs: analysis/{state}_property_nfip_hma.dta, analysis/{state}_county_nfip_hma.dta
+******************************************************************************/
 
 version 17
-clear all
-set more off
 
-global root   "/Users/anna/Desktop/Research/climate-investments"
-global clean  "$root/data/clean"
-global build  "$root/data/build"
-global out    "$root/data/analysis"
+* Data root passed from master.do as the first argument
+args data
+local dclean    "`data'/clean"
+local dbuild    "`data'/build"
+local danalysis "`data'/analysis"
 
-capture mkdir "$out"
+capture mkdir "`danalysis'"
 
 local states "tx va"
 
@@ -31,7 +30,7 @@ local states "tx va"
 * 1. HMA county-year file, for both property and county panels
 ********************************************************************************
 
-use "$clean/hma_projects.dta", clear
+use "`dclean'/hma_projects.dta", clear
 
 gen str2 state_abbr = ""
 replace state_abbr = "TX" if statenumbercode == 48
@@ -100,7 +99,7 @@ foreach st of local states {
     * 2A. NFIP base and tiered policy-cell summaries
     ***************************************************************************
 
-    use "$clean/nfip_policies_`st'.dta", clear
+    use "`dclean'/nfip_policies_`st'.dta", clear
 
     * Wagner-style residential homeowner sample.
     keep if single_family_policy == 1 & primary_residence == 1
@@ -244,7 +243,7 @@ foreach st of local states {
     * 2B. Property panel: Builty+ATTOM base, then tiered NFIP and HMA
     ***************************************************************************
 
-    use "$build/`st'_attom_builty.dta", clear
+    use "`dbuild'/`st'_attom_builty.dta", clear
     gen long _pid = _n
     gen str2 state_abbr = "`ST'"
 
@@ -334,7 +333,7 @@ foreach st of local states {
     }
 
     drop _pid
-    save "$out/`st'_property_nfip_hma.dta", replace
+    save "`danalysis'/`st'_property_nfip_hma.dta", replace
     tab nfip_match_tier
 
     ***************************************************************************
@@ -354,7 +353,7 @@ foreach st of local states {
     duplicates drop
     save `county_base', replace
 
-    use "$clean/all_builty_elevations.dta", clear
+    use "`dclean'/all_builty_elevations.dta", clear
     keep if upper(STATE) == "`ST'"
     capture confirm variable event_year
     if !_rc {
@@ -436,10 +435,10 @@ foreach st of local states {
 
     order state_abbr fips_county year
     sort fips_county year
-    save "$out/`st'_county_nfip_hma.dta", replace
+    save "`danalysis'/`st'_county_nfip_hma.dta", replace
 
     count if hma_fema_any == 1
     di as result "`ST' county HMA county-years retained: " r(N)
 }
 
-di as result "Done: property and county NFIP/HMA panels written to $out"
+di as result "Done: property and county NFIP/HMA panels written to `danalysis'"

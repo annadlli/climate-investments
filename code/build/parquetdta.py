@@ -9,13 +9,18 @@ import numpy as np
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--state", required=True, help="State abbreviation, e.g. TX or VA")
+    parser.add_argument(
+        "--data",
+        default="/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Data",
+        help="Data root (contains build/). Passed from master.do as $data.",
+    )
     args = parser.parse_args()
 
     state = args.state.lower()
 
-    root = Path("/Users/anna/Desktop/Research/climate-investments")
-    in_path = root / "data" / "build" / state / f"{state}_attom_permits_strict.parquet"
-    out_path = root / "data" / "build" / f"{state}_attom_builty.dta"
+    data = Path(args.data)
+    in_path = data / "build" / state / f"{state}_attom_permits_strict.parquet"
+    out_path = data / "build" / f"{state}_attom_builty.dta"
 
     con = duckdb.connect()
 
