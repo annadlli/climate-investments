@@ -69,6 +69,17 @@ Builty permits, ATTOM property values, FEMA **HMA (FMA home-elevation projects o
 **policies**. **Dropped 2026-05-29:** NRI, NPR buyouts, ClimateRisk (old code in `clean/archive/`
 and `build/archive/`).
 
+## Reference: Wagner replication repo
+
+Wagner (2022) — the source of the tiered cell-match method this project borrows — ships a full Stata/R
+cleaning + analysis replication package in Dropbox `Flooding/Wagner_repository/` (sibling of
+`Flooding/Data/`; `code/A_cleaning/` is the cleaning pipeline, `README.pdf` documents it). **When
+writing or revising NFIP / flood-risk data-cleaning code (claims, policies, flood zones), consult it
+for inspiration first** — e.g. the Wagner-cell match keys
+(`zipcode · year_built · flood_zone · year · community · org_nb_dt`), the high/low-risk flood-zone
+classification (high = A/AE/AH/AO/V/VE), and the single-family / construction-year screens. Our project
+differs from hers (we estimate additionality + ∆D, not adverse selection), so **adapt, don't copy**.
+
 ## Open issues & handoff
 
 Tracked in [TODO.md](TODO.md) — pending work, the `nfip_build` reconciliation, and what's archived.

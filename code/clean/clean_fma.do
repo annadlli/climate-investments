@@ -33,6 +33,8 @@ keep if strpos(projecttype, "202.1") > 0 | strpos(projecttype, "202.2") > 0 // H
 drop if strpos(projecttype, "Acquisition") > 0 // drop buyouts
 // iii) Drop remaining compound projects: strip the private-elevation entries, drop if any other activity code is left (keeps 202.1+202.2 combos)
 drop if ustrregexm(ustrregexra(projecttype, "202\.[12]A?:[^;]*", ""), "[0-9]+\.[0-9]+[A-Z]?:")
+// iv) Drop projects where no properties were elevated
+drop if numberofproperties == 0
 drop programarea
 
 * Convert date strings to numeric calendar years
@@ -40,11 +42,17 @@ gen year_approved = real(substr(dateapproved, 1, 4))
 gen year_closed = real(substr(dateclosed, 1, 4))
 drop dateapproved dateclosed
 
+* Variable cleanup 
+stop 
+replace benefitcostratio = . if benefitcostratio == 0
+
 * Rename 
-rename programfy year
+rename (programfy benefitcostratio) (year bcr)
 
 * Label variables
 label var year                      "Program fiscal year"
+label var year_approved             "Year project approved"
+label var year_closed               "Year project closed"
 label var state                     "State name"
 label var statenumbercode           "State FIPS code"
 label var county                    "County name"
@@ -59,11 +67,9 @@ label var benefitcostratio          "Benefit-cost ratio"
 label var netvaluebenefits          "Net value of benefits"
 label var numberofproperties        "Number of properties"
 label var numberoffinalproperties   "Final number of properties"
-label var year_approved             "Year project approved"
-label var year_closed               "Year project closed"
 
 * Save data 
 order year* state statenumbercode county countycode status 
 sort year state county
 compress
-save "`data'/clean/hma_projects.dta", replace
+save "`data'/clean/fma_elevations.dta", replace

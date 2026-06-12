@@ -28,15 +28,19 @@ local data "/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Da
 /* local code "/Users/anna/Desktop/Research/climate-investments/code"
 local data "/Users/anna/Desktop/Research/climate-investments/data" */
 
-local python "python3"
+* Machine-specific: full path to a python with duckdb/pandas. Stata's GUI shell PATH
+* does NOT include conda, so a bare "python3" resolves to system python (no duckdb).
+local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
+* --- Anna --- local python "python3"
 
 * -----------------------------------------------------------------------------
 * Section 1: Set switches  (1 = run, 0 = skip)
 * -----------------------------------------------------------------------------
 
 // i) Clean 
-local clean_hma            = 0
-local clean_nfip_claims    = 1
+local import_nfip_policies = 1   
+local clean_fma            = 0
+local clean_nfip_claims    = 0   // PENDING: not sure how/if we will use this data, so pausing cleanup here
 local clean_nfip_policies  = 0
 
 // ii) Build 
@@ -52,8 +56,11 @@ local build_panels         = 0
 * -----------------------------------------------------------------------------
 
 // i) Clean
-if `clean_hma' == 1 {
-    do "`code'/clean/clean_hma.do" "`data'"
+if `import_nfip_policies' == 1 {
+    shell `python' "`code'/clean/import_nfip_policies.py" --data "`data'"
+}
+if `clean_fma' == 1 {
+    do "`code'/clean/clean_fma.do" "`data'"
 }
 if `clean_nfip_claims' == 1 {
     do "`code'/clean/clean_nfip_claims.do" "`data'"

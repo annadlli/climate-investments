@@ -11,6 +11,10 @@ Source: fema.gov/openfema-data-page/fima-nfip-redacted-policies-v2
 
 args data
 
+import delimited using "`data'/raw/FimaNfipPoliciesV2.csv", clear varnames(1) stringcols(_all)
+
+stop 
+
 // note:initial processing is done in python already,including splitting the 30+GB file and extracting relevant state only. this is cleaning up further
 foreach st in tx va {
 
