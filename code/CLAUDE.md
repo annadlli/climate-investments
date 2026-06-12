@@ -7,10 +7,9 @@ See `../README.md` for the overview.
 > **📋 At session start, report the open handoff tasks in [TODO.md](TODO.md) to the user.**
 > (Surface the open items until the `torch_work/` cleanup there is done; then this line can be removed.)
 
-**Follow [CONVENTIONS.md](CONVENTIONS.md).** Apply it **closely to data-construction code**
-(`master.do`, `clean/`, `build/`) and flag violations there; treat it as guidelines for
-exploratory/temporary analysis & descriptives. No spaces in file/folder names applies everywhere.
-**`CONVENTIONS.md` is owned by Vendela — propose changes to her, don't edit it yourself.**
+**Rules** — naming, paths, banners, Stata, workflow — live in [CONVENTIONS.md](CONVENTIONS.md); follow
+them. It's **Vendela-owned**: agents on her machine may edit it on her behalf; others (incl. Anna's
+agents) propose changes to her.
 
 ## Project
 
@@ -33,7 +32,7 @@ in `master.do`; no hardcoded user paths in scripts.)
 ## Pipeline (`master.do`, construction only)
 
 ```
-clean/clean_hma.do               -> clean/hma_projects.dta
+clean/clean_hma.do               -> clean/hma_projects.dta   (FMA private home-elevation projects)
 clean/clean_nfip_claims.do       -> clean/nfip_claims.dta
 clean/clean_nfip_policies.do     -> clean/nfip_policies_{tx,va}.dta
 build/filter_builty_strict.py    strict-filter Builty elevation permits   [PENDING — do not edit]
@@ -66,7 +65,7 @@ Data (Dropbox `Flooding/Data/`): `raw → clean → build → analysis`, NOT und
 
 ## Active data sources
 
-Builty permits, ATTOM property values, FEMA **HMA (FMA only)**, FEMA NFIP **claims** and
+Builty permits, ATTOM property values, FEMA **HMA (FMA home-elevation projects only)**, FEMA NFIP **claims** and
 **policies**. **Dropped 2026-05-29:** NRI, NPR buyouts, ClimateRisk (old code in `clean/archive/`
 and `build/archive/`).
 

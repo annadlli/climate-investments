@@ -16,7 +16,6 @@ Outputs: analysis/{state}_property_nfip_hma.dta, analysis/{state}_county_nfip_hm
 
 version 17
 
-* Data root passed from master.do as the first argument
 args data
 local dclean    "`data'/clean"
 local dbuild    "`data'/build"

@@ -9,14 +9,12 @@ Description: Further-cleans the FEMA NFIP redacted policies ->
 Source: fema.gov/openfema-data-page/fima-nfip-redacted-policies-v2
 ******************************************************************************/
 
-* Data root passed from master.do as the first argument
 args data
-local clean "`data'/clean"
 
 // note:initial processing is done in python already,including splitting the 30+GB file and extracting relevant state only. this is cleaning up further
 foreach st in tx va {
 
-    use "`clean'/nfip_policies_`st'.dta", clear
+    use "`data'/clean/nfip_policies_`st'.dta", clear
 
     keep id property_state_clean latitude longitude ///
         policy_effective_date policy_termination_date policy_effective_year ///
@@ -113,5 +111,5 @@ label values has_contents_policy yesno
     label values is_elevated yesno
     label values post_firm yesno
 
-    save "`clean'/nfip_policies_`st'.dta", replace
+    save "`data'/clean/nfip_policies_`st'.dta", replace
 }

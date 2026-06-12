@@ -14,12 +14,9 @@ NOTE (needs reconciling with Anna): this reads clean/nfip_claims.dta and expects
     reconciliation; paths parametrized, logic unchanged.
 ******************************************************************************/
 
-* Data root passed from master.do as the first argument
 args data
-local clean "`data'/clean"
-local build "`data'/build"
 
-use "`clean'/nfip_claims.dta", clear
+use "`data'/clean/nfip_claims.dta", clear
 * Flag SFHA and eliminate them from sample
 *note: will use ratedfloodzone as measure, as that was how NFIP was actually used to price and rate
 *SFHA determined as FEMA describes: https://www.fema.gov/about/glossary/special-flood-hazard-area-sfha
@@ -105,4 +102,4 @@ tab year
 * 10. Save county × year file
 * -------------------------------------------------------
 sort fips_county year
-save "`build'/nfip_tx_countyyear.dta", replace
+save "`data'/build/nfip_tx_countyyear.dta", replace

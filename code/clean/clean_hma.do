@@ -1,105 +1,69 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-05-29
+Date: 2026-06-11
 
-Description: Cleans FEMA Hazard Mitigation Assistance (HMA) projects ->
-    clean/hma_projects.dta. Restricted to FMA (2026-05-29).
+Description: Cleans FEMA Hazard Mitigation Assistance (HMA) projects data, 
+    restricting to FMA projects. 
 
 Source: fema.gov/openfema-data-page/hazard-mitigation-assistance-projects-v4
 ******************************************************************************/
 
-* Data root passed from master.do as the first argument
 args data
-local raw   "`data'/raw"
-local clean "`data'/clean"
 
-local hma_raw ""
+* Import data 
+import delimited using "`data'/raw/HazardMitigationAssistanceProjects.csv", clear ///
+    varnames(1) stringcols(_all) bindquote(strict)
 
-foreach f in ///
-    "`raw'/HazardMitigationAssistanceProjects (1).csv" ///
-    "`raw'/HazardMitigationAssistanceProjects.csv" ///
-    "`raw'/hma_projects.csv" ///
-    "`raw'/fema/HazardMitigationAssistanceProjects.csv" ///
-    "`raw'/fema/hma_projects.csv" {
+* Drop irrelevant variables 
+drop disasternumber recipientadmincostamt recipienttribalindicator ///
+    subrecipientadmincostamt subrecipienttribalindicator dateinitiallyapproved ///
+    initialobligationdate srmcobligatedamt region id projectidentifier ///
+    datasource projectcounties
 
-    capture confirm file "`f'"
+* Destring
+qui: destring *, replace 
 
-    if _rc == 0 & "`hma_raw'" == "" {
-        local hma_raw "`f'"
-    }
-}
+* Filter to relevant projects 
+// i) Keep FMA projects 
+keep if programarea == "FMA" // FMA projects 
+keep if strpos(projecttype, "202.1") > 0 | strpos(projecttype, "202.2") > 0 // Home elevations 
+// ii) Drop buyouts 
+// Note: The vast marjority of projects are elevation or buyout only. This drops 
+// a small number of projects (~75) that bundle both. 
+drop if strpos(projecttype, "Acquisition") > 0 // drop buyouts
+// iii) Drop remaining compound projects: strip the private-elevation entries, drop if any other activity code is left (keeps 202.1+202.2 combos)
+drop if ustrregexm(ustrregexra(projecttype, "202\.[12]A?:[^;]*", ""), "[0-9]+\.[0-9]+[A-Z]?:")
+drop programarea
 
-if "`hma_raw'" == "" {
-    di as error "SKIP: HazardMitigationAssistanceProjects raw file not found in data/raw."
-}
-else {
+* Convert date strings to numeric calendar years
+gen year_approved = real(substr(dateapproved, 1, 4))
+gen year_closed = real(substr(dateclosed, 1, 4))
+drop dateapproved dateclosed
 
-    import delimited using "`hma_raw'", clear varnames(1) stringcols(_all) bindquote(strict)
-     rename *, lower
+* Rename 
+rename programfy year
 
-    keep projectidentifier programarea programfy region state statenumbercode ///
-         county countycode disasternumber projectcounties projecttype ///
-         status recipient recipienttribalindicator subrecipient ///
-         subrecipienttribalindicator datasource dateapproved ///
-         dateclosed dateinitiallyapproved projectamount ///
-         initialobligationdate initialobligationamount ///
-         federalshareobligated subrecipientadmincostamt ///
-         srmcobligatedamt recipientadmincostamt ///
-         costsharepercentage benefitcostratio netvaluebenefits ///
-         numberoffinalproperties numberofproperties id
+* Label variables
+label var year                      "Program fiscal year"
+label var state                     "State name"
+label var statenumbercode           "State FIPS code"
+label var county                    "County name"
+label var countycode                "County FIPS code"
+label var projecttype               "Project type"
+label var status                    "Project status"
+label var recipient                 "Recipient"
+label var subrecipient              "Subrecipient"
+label var projectamount             "Total project amount"
+label var federalshareobligated     "Federal share obligated"
+label var benefitcostratio          "Benefit-cost ratio"
+label var netvaluebenefits          "Net value of benefits"
+label var numberofproperties        "Number of properties"
+label var numberoffinalproperties   "Final number of properties"
+label var year_approved             "Year project approved"
+label var year_closed               "Year project closed"
 
-    drop if missing(id) & missing(projectidentifier) & missing(programfy)
-
-    foreach v in ///
-        programfy region statenumbercode countycode disasternumber ///
-        projectamount initialobligationamount federalshareobligated ///
-        subrecipientadmincostamt srmcobligatedamt ///
-        recipientadmincostamt costsharepercentage ///
-        benefitcostratio netvaluebenefits ///
-        numberoffinalproperties numberofproperties {
-
-        capture destring `v', replace force
-    }
-
-    * Labels
-    label data "Clean source: FEMA Hazard Mitigation Assistance Projects"
-
-    label var projectidentifier      "HMA project identifier"
-    label var programarea            "HMA program area"
-    label var programfy              "Program fiscal year"
-    label var region                 "FEMA region"
-    label var state                  "State name"
-    label var statenumbercode        "State FIPS code"
-    label var county                 "County name"
-    label var countycode             "County FIPS code"
-    label var disasternumber         "FEMA disaster number"
-    label var projecttype            "Project type"
-    label var status                 "Project status"
-    label var recipient              "Recipient"
-    label var subrecipient           "Subrecipient"
-    label var projectamount          "Total project amount"
-    label var federalshareobligated  "Federal share obligated"
-    label var benefitcostratio       "Benefit-cost ratio"
-    label var netvaluebenefits       "Net value of benefits"
-    label var numberofproperties     "Number of properties"
-    label var numberoffinalproperties "Final number of properties"
-
-    * Drop unused variables
-    drop disasternumber ///
-         recipientadmincostamt ///
-         recipienttribalindicator ///
-         subrecipientadmincostamt ///
-         subrecipienttribalindicator ///
-         dateinitiallyapproved ///
-         initialobligationdate ///
-         srmcobligatedamt ///
-         region ///
-         id ///
-         projectidentifier
-
-    order programfy state statenumbercode county countycode
-	keep if programarea == "FMA" //2026-05-29 update: keep only FMA -> 4409 obs total
-    compress
-
-    save "`clean'/hma_projects.dta", replace
-}
+* Save data 
+order year* state statenumbercode county countycode status 
+sort year state county
+compress
+save "`data'/clean/hma_projects.dta", replace

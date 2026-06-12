@@ -36,7 +36,7 @@ local python "python3"
 
 // i) Clean 
 local clean_hma            = 0
-local clean_nfip_claims    = 0
+local clean_nfip_claims    = 1
 local clean_nfip_policies  = 0
 
 // ii) Build 

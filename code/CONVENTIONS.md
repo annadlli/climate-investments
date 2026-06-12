@@ -42,7 +42,7 @@ These cover all code in this repo (Stata `.do`, Python `.py` / `.ipynb`). Refere
 - Two roots, set once in `master.do`: `code` (this git repo) and `data` (Dropbox).
 - **Data lives in Dropbox**, never committed to git.
 - Children get the `data` root from `master.do` via `args data`. To run one on its own, pass it explicitly (`` do "clean_hma.do" "<data path>" ``) — **don't** bake in a fallback default, since that would be machine-specific.
-- **Mechanism (args-pass):** `master.do` sets `local code` + `local data` and passes the data root to each child — `` do "`code'/clean/clean_hma.do" "`data'" ``. The child reads it with `args data and derives its own subpaths (`` local clean "`data'/clean" ``). Python steps take `--data` (or `--input/--out-dir`).
+- **Mechanism (args-pass):** `master.do` sets `local code` + `local data` and passes the data root to each child — `` do "`code'/clean/clean_hma.do" "`data'" ``. The child reads it with `` args data `` and references its subpaths inline off that root (`` "`data'/clean/…" ``, `` "`data'/raw/…" ``) — no intermediate `` local clean `` / `` local raw ``. Python steps take `--data` (or `--input/--out-dir`).
 
 ## 4. Headers — Meatpacking project banner
 
@@ -50,18 +50,18 @@ Every `.do` opens with:
 ```stata
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: YYYY-MM-DD          // single date = last update; no separate "Last update:" line
+Date: YYYY-MM-DD          
 Description: ...
 Notes / Sources: ...
 ******************************************************************************/
 ```
 - No bare filename comment at the top (`* myfile.do`).
-- One date line only.
 - No code before banner. 
 
-## 5. Stata style
+## 5. Stata coding conventions
 
 - Label variables and datasets.
+- **Never use `destring ..., replace force`.** Without `force`, `destring` refuses to convert a variable that holds any non-numeric character and leaves it untouched — a useful guardrail. `force` overrides that and recodes every unparseable value to missing (`.`), silently dropping data. If a `destring` won't go through cleanly, diagnose *why* first: strip stray characters (`destring var, replace ignore("$,%")`) or keep the variable as a string — don't `force` past it.
 
 ## 6. Workflow
 
@@ -73,10 +73,11 @@ Notes / Sources: ...
 - A script that **no longer runs against the current data** (reads inputs the pipeline no longer produces) belongs in `archive/` — this applies to `analysis/` and `descriptives/` too, not just construction code.
 - **End every session by committing and pushing to GitHub.** We work simultaneously — finished work left only on a local machine is a stale/lost-code risk. Use small, descriptive commits.
 - **Verify the push actually landed — don't assume.** After pushing, confirm: `git status` is clean and `git log origin/<branch>` shows your commit. (A GitHub Desktop push has silently failed before.)
+- **Start every session by pulling from GitHub.** Same risk in reverse: editing a stale file invites avoidable merge conflicts. Run `git fetch`, check ahead/behind, and `git pull --rebase` when the tree is clean. If you have uncommitted work, review it first — don't blind-pull onto a dirty tree.
 
 ## 7. Project docs — what goes where (keep them separate)
 
-- **`CONVENTIONS.md`** (this file) — the rules. Owned by Vendela; everyone else (incl. their agents) proposes changes to her, doesn't edit.
+- **`CONVENTIONS.md`** (this file) — the rules. Owned by Vendela. Agents running on Vendela's machine may edit it directly on her behalf; collaborators and their agents (e.g. Anna's) propose changes to her rather than editing.
 - **`CLAUDE.md` / `AGENTS.md`** — agent entry points: *stable* project knowledge (pipeline, layout, data sources) + pointers. **Not** a task list, **not** a place to restate conventions.
 - **`TODO.md`** — the *living* handoff: open tasks, reconciliation, status, progress notes. In-flight items go here — not in `CLAUDE.md`.
 - **`README.md`** — human-facing overview.
