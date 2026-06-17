@@ -11,15 +11,15 @@ def main():
     parser.add_argument("--state", required=True, help="State abbreviation, e.g. TX or VA")
     parser.add_argument(
         "--data",
-        default="/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Data",
-        help="Data root (contains build/). Passed from master.do as $data.",
+        required=True,
+        help="Dropbox data root. Input/output paths derive from this root.",
     )
     args = parser.parse_args()
 
     state = args.state.lower()
 
     data = Path(args.data)
-    in_path = data / "build" / state / f"{state}_attom_permits_strict.parquet"
+    in_path = data / "build" / f"{state}_attom_permits_strict.parquet"
     out_path = data / "build" / f"{state}_attom_builty.dta"
 
     con = duckdb.connect()

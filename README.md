@@ -23,10 +23,10 @@ To run on another machine, edit only the `global code` / `global data` lines at 
 CLEAN  clean/clean_hma.do            -> hma_projects.dta
        clean/clean_nfip_claims.do    -> nfip_claims.dta
        clean/clean_nfip_policies.do  -> nfip_policies_{tx,va}.dta
-BUILD  build/filter_builty_strict.py    strict-filter Builty elevation permits      [PENDING Anna's revision]
-       build/split_builty_states.py     split filtered permits into TX/VA parquet
-       build/attom_onto_permits.py      match ATTOM property records onto permits    [PENDING Anna's revision]
-       build/parquetdta.py              matched parquet -> {state}_attom_builty.dta
+BUILD  build/build_builty_filter.py           -> build/all_builty_elevations.parquet
+       build/build_split_builty_states.py     -> build/{state}_flood_elevation_strict.parquet
+       build/build_attom_onto_permits.py      -> build/{state}_attom_permits_strict.parquet
+       build/parquetdta.py                    -> build/{state}_attom_builty.dta
        build/nfip_build.do              NFIP claims -> county-year   [needs reconciling, see TODO]
        build/build_nfip_hma_panels.do   -> analysis/{state}_{property,county}_nfip_hma.dta
 ANALYSIS  analysis/*.do, *.py           run separately
@@ -67,6 +67,5 @@ all_builty_elevations}.dta`, `build/{tx,va}_attom_builty.dta`, `analysis/{tx,va}
 
 ## Status
 
-See `code/TODO.md`. In short: `filter_builty_strict.py` and `attom_onto_permits.py` are pending
-Anna's revised versions; `nfip_build.do` needs its inputs/outputs reconciled with
+See `code/TODO.md`. In short: `nfip_build.do` needs its inputs/outputs reconciled with
 `create_clean_files.do`; superseded Gen-1 merge scripts are held in `build/` pending review.

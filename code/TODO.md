@@ -30,8 +30,6 @@ documented, behind a `0/1` switch (including whatever comes out of `torch_work/`
 
 ## Pending / reconcile
 
-- [ ] **`filter_builty_strict.py` / `attom_onto_permits.py`** (Anna's tea-spill files) — push the
-      revised versions; they're the two `master.do` steps marked PENDING. Vendela should not edit them locally until then (`git fetch && git checkout origin/main -- build/filter_builty_strict.py build/attom_onto_permits.py`).
 - [ ] **`nfip_build.do` ↔ `clean_nfip_claims.do` mismatch.** `nfip_build.do` uses `damage_ratio`,
       `got_icc`, `bldg_damage_amt`, etc. that `clean_nfip_claims.do` doesn't produce (the old
       `nfip_clean.do` computed them). Fold that logic into `clean_nfip_claims.do` (or before

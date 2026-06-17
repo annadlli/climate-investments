@@ -9,8 +9,6 @@ Description: Runs the data-construction pipeline for the climate-investments
 Notes: Set the two roots below per machine -- `code' (this git repo) and `data'
     (Dropbox). Every path derives from them; nothing else is machine-specific.
     Raw ATTOM/BUILTY parquet are created upstream from the Dewey API (torch_work/).
-    filter_builty_strict.py and attom_onto_permits.py are pending Anna's revised
-    versions (lost work) -- those steps will not run end-to-end yet.
 ******************************************************************************/
 
 version 18
@@ -44,9 +42,9 @@ local clean_nfip_claims    = 0   // PENDING: not sure how/if we will use this da
 local clean_nfip_policies  = 0
 
 // ii) Build 
-local filter_builty        = 0    // PENDING Anna's revised filter_builty_strict.py
+local filter_builty        = 0
 local split_states         = 0
-local match_attom          = 0    // PENDING Anna's revised attom_onto_permits.py
+local match_attom          = 0
 local make_dta             = 0
 local build_nfip           = 0    // see header: needs reconciling with clean_nfip_claims.do
 local build_panels         = 0
@@ -71,17 +69,16 @@ if `clean_nfip_policies' == 1 {
 
 // ii) Build
 if `filter_builty' == 1 {
-    shell `python' "`code'/build/filter_builty_strict.py"
+    shell `python' "`code'/build/build_builty_filter.py" --data "`data'"
 }
 if `split_states' == 1 {
-    shell `python' "`code'/build/split_builty_states.py" ///
-        --input "`data'/clean/all_elevation.parquet" ///
-        --out-dir "`data'/build" ///
+    shell `python' "`code'/build/build_split_builty_states.py" ///
+        --data "`data'" ///
         --states TX VA
 }
 if `match_attom' == 1 {
-    shell `python' "`code'/build/attom_onto_permits.py" --state TX
-    shell `python' "`code'/build/attom_onto_permits.py" --state VA
+    shell `python' "`code'/build/build_attom_onto_permits.py" --data "`data'" --state TX
+    shell `python' "`code'/build/build_attom_onto_permits.py" --data "`data'" --state VA
 }
 if `make_dta' == 1 {
     shell `python' "`code'/build/parquetdta.py" --state TX --data "`data'"

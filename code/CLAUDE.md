@@ -35,9 +35,9 @@ in `master.do`; no hardcoded user paths in scripts.)
 clean/clean_hma.do               -> clean/hma_projects.dta   (FMA private home-elevation projects)
 clean/clean_nfip_claims.do       -> clean/nfip_claims.dta
 clean/clean_nfip_policies.do     -> clean/nfip_policies_{tx,va}.dta
-build/filter_builty_strict.py    strict-filter Builty elevation permits   [PENDING — do not edit]
-build/split_builty_states.py     -> build/{state}/{state}_flood_elevation_strict.parquet
-build/attom_onto_permits.py      match ATTOM onto permits                 [PENDING — do not edit]
+build/build_builty_filter.py     -> build/all_builty_elevations.parquet
+build/build_split_builty_states.py     -> build/{state}_flood_elevation_strict.parquet
+build/build_attom_onto_permits.py      match ATTOM onto split Builty state files
 build/parquetdta.py              -> build/{state}_attom_builty.dta
 build/nfip_build.do              NFIP claims -> county-year   [BROKEN — see flag]
 build/build_nfip_hma_panels.do   -> analysis/{state}_{property,county}_nfip_hma.dta
@@ -53,7 +53,7 @@ code/
 ├── master.do                 local code/data roots, args-pass + 0/1 switches; clean + build
 ├── clean/                    clean_hma.do, clean_nfip_claims.do, clean_nfip_policies.do
 │   └── archive/              clean_nri.do, clean_npr.do, nri_prep.py   (dropped sources)
-├── build/                    active Gen-2 .py/.do (above) + parquetdta.py, split_builty_states.py
+├── build/                    active Gen-2 .py/.do (above) + parquetdta.py
 │   └── archive/              merge_npr_onto_state_panels.do  (Gen-1 leftovers still held in build/)
 ├── descriptives/archive/     Gen-1 descriptive scripts (read old data; await rebuild on Gen-2 panels)
 ├── analysis/archive/         Gen-1 analysis: regressions, RD, identification (same — await rebuild)
