@@ -8,8 +8,8 @@ Description: Runs the data-construction pipeline for the climate-investments
 
 Notes: Set the two roots below per machine -- `code' (this git repo) and `data'
     (Dropbox). Every path derives from them; nothing else is machine-specific.
-    Raw ATTOM/BUILTY parquet are licensed Dewey downloads. Use a private
-    Dewey manifest; see clean/dewey_replication.md.
+    Raw ATTOM/BUILTY parquet are licensed Dewey downloads; fill the
+    placeholder Dewey endpoints in clean/import_dewey.py before running.
 ******************************************************************************/
 
 version 18
@@ -36,6 +36,9 @@ local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
 * Section 1: Set switches  (1 = run, 0 = skip)
 * -----------------------------------------------------------------------------
 
+// State scope
+local states "TX VA"
+
 // i) Clean 
 local import_dewey         = 0
 local import_nfip_policies = 1   
@@ -52,17 +55,19 @@ local make_dta             = 0
 local build_nfip           = 0    // see header: needs reconciling with clean_nfip_claims.do
 local build_panels         = 0
 
+// iii) Descriptives
+local compare_builty_hmgp_coverage = 0
+
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
 * -----------------------------------------------------------------------------
 
 // i) Clean
 if `import_dewey' == 1 {
-    shell `python' "`code'/clean/import_dewey.py" --data "`data'" ///
-        --manifest "`data'/raw/dewey/dewey_manifest.csv"
+    shell `python' "`code'/clean/import_dewey.py" --data "`data'"
 }
 if `import_nfip_policies' == 1 {
-    shell `python' "`code'/clean/import_nfip_policies.py" --data "`data'"
+    shell `python' "`code'/clean/import_nfip_policies.py" --data "`data'" --states "`states'"
 }
 if `clean_fma' == 1 {
     do "`code'/clean/clean_fma.do" "`data'"
@@ -81,20 +86,23 @@ if `filter_builty' == 1 {
 if `split_states' == 1 {
     shell `python' "`code'/build/build_split_builty_states.py" ///
         --data "`data'" ///
-        --states TX VA
+        --states `states'
 }
 if `match_attom' == 1 {
-    shell `python' "`code'/build/build_attom_onto_permits.py" --data "`data'" --state TX
-    shell `python' "`code'/build/build_attom_onto_permits.py" --data "`data'" --state VA
+    foreach state of local states {
+        shell `python' "`code'/build/build_attom_onto_permits.py" --data "`data'" --state "`state'"
+    }
 } //run with TORCH due to size, not locally
 
 if `merge_fma' == 1 {
-    shell `python' "`code'/build/build_fma_onto_builty_attom.py" --data "`data'" --state TX
-    shell `python' "`code'/build/build_fma_onto_builty_attom.py" --data "`data'" --state VA
+    foreach state of local states {
+        shell `python' "`code'/build/build_fma_onto_builty_attom.py" --data "`data'" --state "`state'"
+    }
 }
 if `make_dta' == 1 {
-    shell `python' "`code'/build/parquetdta.py" --state TX --data "`data'"
-    shell `python' "`code'/build/parquetdta.py" --state VA --data "`data'"
+    foreach state of local states {
+        shell `python' "`code'/build/parquetdta.py" --state "`state'" --data "`data'"
+    }
 }
 if `build_nfip' == 1 {
     do "`code'/build/nfip_build.do" "`data'"
@@ -103,4 +111,7 @@ if `build_panels' == 1 {
     do "`code'/build/build_nfip_hma_panels.do" "`data'"
 }
 
-// iii) Analysis (TBD)
+// iii) Descriptives
+if `compare_builty_hmgp_coverage' == 1 {
+    shell `python' "`code'/../descriptives/compare_builty_hmgp_coverage.py" --data "`data'"
+}

@@ -7,14 +7,14 @@ import deweydatapy as ddp
 import re
 import os
 
-apikey = "akv1_rmWv0DXQ-2jsoB2tLp9csaYBx7X_xIWBYg6"
+apikey = "DEWEY_API_KEY_PLACEHOLDER"
 
-# la = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_g3u7q96qptfdkkbp"
-# va = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_garggg9vj69evxb3"
-# mo = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_4vhkmikfsqyhcgbj"
-# nc = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_wcgxgkigfbaqiiwg"
-#nj = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_gkawycobzibu8cnc"
-tx = "https://api.deweydata.io/api/v1/external/data/prj_hgemyv4u__cdst_e6hfaj8ebh8k8ogp"
+# la = "DEWEY_ENDPOINT_URL_PLACEHOLDER"
+# va = "DEWEY_ENDPOINT_URL_PLACEHOLDER"
+# mo = "DEWEY_ENDPOINT_URL_PLACEHOLDER"
+# nc = "DEWEY_ENDPOINT_URL_PLACEHOLDER"
+#nj = "DEWEY_ENDPOINT_URL_PLACEHOLDER"
+tx = "DEWEY_ENDPOINT_URL_PLACEHOLDER"
 
 for state_name, endpoint in [("tx", tx)]:  # ("nj", nj), ("la", la), ("va", va), ("mo", mo), ("nc", nc)
     files_df = ddp.get_file_list(apikey, endpoint, print_info=True)

@@ -37,7 +37,8 @@ documented, behind a `0/1` switch (including whatever comes out of `torch_work/`
       Also confirm the intended NFIP path: panels use **policies**, `nfip_build` uses **claims**.
 - [x] **`import_dewey.py` source cleanup.** The notebook has been converted to a convention-style
       `.py` script with `--data`. Real Dewey endpoint URLs and API keys are excluded from git; use
-      a private manifest based on `clean/dewey_manifest_template.csv`.
+      placeholder endpoint values in `clean/import_dewey.py` and fill them only in a secure/local
+      run context.
 
 ## NFIP data — claims / policies / multiple-loss (in progress, 2026-06-12)
 

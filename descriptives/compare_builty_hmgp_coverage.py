@@ -2,6 +2,18 @@
 """
 Compare county coverage in Builty permits against FEMA HMGP projects.
 
+Authors: Anna Li and Vendela Norman
+Date: 2026-06-18
+
+Description:
+    Creates county-level coverage summaries and maps comparing raw Builty permit
+    geography with FEMA HMGP project geography.
+
+Notes / Sources:
+    Pass the data root with --data. By default, this descriptives script compares
+    raw Builty all-permit coverage against HMGP overall coverage and writes
+    artifacts to output/raw_builty_hmgp_overall_coverage.
+
 Outputs:
   - builty_hmgp_coverage_summary.csv
   - builty_hmgp_county_coverage_by_state.csv
@@ -21,6 +33,14 @@ import duckdb
 import geopandas as gpd
 import pandas as pd
 
+
+DEFAULT_OUT_DIR = Path("output/raw_builty_hmgp_overall_coverage")
+DEFAULT_COUNTY_GEOJSON = Path("output/reference/geojson_counties_fips.json")
+HMA_FILENAME_CANDIDATES = (
+    "hazard_mitigation_assistance_projects.csv",
+    "HazardMitigationAssistanceProjects.csv",
+    "HazardMitigationAssistanceProjects (1).csv",
+)
 
 STATE_FIPS = {
     "01": "AL",
@@ -79,7 +99,8 @@ STATE_FIPS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compare Builty permit geography to HMGP geography."
+        description="Compare Builty permit geography to HMGP geography.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--data", required=True, help="Root data directory.")
     parser.add_argument(
@@ -93,16 +114,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hma",
         default=None,
-        help="Optional FEMA HMA raw CSV. Defaults to data/raw/HazardMitigationAssistanceProjects (1).csv.",
+        help=(
+            "Optional FEMA HMA raw CSV. Defaults to the first existing HMA CSV "
+            "candidate under {data}/raw."
+        ),
     )
     parser.add_argument(
         "--out-dir",
-        default="output/builty_hmgp_coverage",
+        default=str(DEFAULT_OUT_DIR),
         help="Output directory for graph and CSVs.",
     )
     parser.add_argument(
         "--county-geojson",
-        default="output/reference/geojson_counties_fips.json",
+        default=str(DEFAULT_COUNTY_GEOJSON),
         help="County GeoJSON with five-digit county FIPS IDs for map output.",
     )
     parser.add_argument(
@@ -120,19 +144,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hmgp-scope",
         choices=["private-elevation", "any-elevation", "overall"],
-        default="private-elevation",
+        default="overall",
         help=(
-            "Which HMGP projects to compare against. Default keeps private-structure "
-            "elevation projects, i.e. project types containing 202.1 or 202.2."
+            "Which HMGP projects to compare against. Use private-elevation for "
+            "project types containing 202.1 or 202.2."
         ),
     )
     parser.add_argument(
         "--builty-scope",
         choices=["filtered-elevation", "raw"],
-        default="filtered-elevation",
+        default="raw",
         help="Use final filtered elevation permits or the raw Builty all-permits file.",
     )
     return parser.parse_args()
+
+
+def resolve_hma_path(data: Path, hma_arg: str | None) -> Path:
+    if hma_arg:
+        return Path(hma_arg)
+
+    for filename in HMA_FILENAME_CANDIDATES:
+        candidate = data / "raw" / filename
+        if candidate.exists():
+            return candidate
+
+    candidates = ", ".join(str(data / "raw" / filename) for filename in HMA_FILENAME_CANDIDATES)
+    raise FileNotFoundError(f"No HMA CSV found. Checked: {candidates}")
 
 
 def normalize_fips(series: pd.Series, width: int) -> pd.Series:
@@ -406,20 +443,22 @@ def plot_county_overlay_map(
     builty_set = set(builty_counties["county_fips"].astype(str))
     counties["in_hmgp"] = counties["county_fips"].isin(hmgp_set)
     counties["in_builty"] = counties["county_fips"].isin(builty_set)
+    builty_label = builty_scope.replace("-", " ").title()
+    builty_only_label = f"{builty_label} Builty only"
     counties["coverage_group"] = "Neither"
-    counties.loc[counties["in_builty"] & ~counties["in_hmgp"], "coverage_group"] = "Raw Builty only"
+    counties.loc[counties["in_builty"] & ~counties["in_hmgp"], "coverage_group"] = builty_only_label
     counties.loc[~counties["in_builty"] & counties["in_hmgp"], "coverage_group"] = "HMGP only"
     counties.loc[counties["in_builty"] & counties["in_hmgp"], "coverage_group"] = "Both"
 
     colors = {
         "Neither": "#F1F1F1",
-        "Raw Builty only": "#4C78A8",
+        builty_only_label: "#4C78A8",
         "HMGP only": "#E45756",
         "Both": "#5AA469",
     }
 
     fig, ax = plt.subplots(figsize=(14, 8.5))
-    for group in ["Neither", "Raw Builty only", "HMGP only", "Both"]:
+    for group in ["Neither", builty_only_label, "HMGP only", "Both"]:
         counties[counties["coverage_group"].eq(group)].plot(
             ax=ax,
             color=colors[group],
@@ -435,9 +474,8 @@ def plot_county_overlay_map(
         ax.set_ylim(18, 72)
     ax.set_axis_off()
     hmgp_label = hmgp_scope.replace("-", " ").title()
-    builty_label = builty_scope.replace("-", " ").title()
     ax.set_title(f"{builty_label} Builty and HMGP {hmgp_label} County Coverage", fontsize=16, pad=12)
-    legend_order = ["Both", "HMGP only", "Raw Builty only", "Neither"]
+    legend_order = ["Both", "HMGP only", builty_only_label, "Neither"]
     handles = [mpatches.Patch(color=colors[group], label=group) for group in legend_order]
     ax.legend(handles=handles, loc="lower left", frameon=True, title="County status")
     fig.tight_layout()
@@ -454,7 +492,7 @@ def main() -> None:
         else data / "build/all_builty_elevations.parquet"
     )
     builty_path = Path(args.builty) if args.builty else default_builty
-    hma_path = Path(args.hma) if args.hma else data / "raw/HazardMitigationAssistanceProjects (1).csv"
+    hma_path = resolve_hma_path(data, args.hma)
     out_dir = Path(args.out_dir)
     county_geojson = Path(args.county_geojson)
     states = {state.upper() for state in args.states} if args.states else None
