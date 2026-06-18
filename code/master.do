@@ -4,11 +4,12 @@ Date: 2026-06-05
 
 Description: Runs the data-construction pipeline for the climate-investments
     project (clean -> build). Toggle the switches in Section 1, then run.
-    Analysis and descriptives are run separately (see code/analysis, code/descriptives).
+    Analysis and descriptives are run separately (see code/analysis and descriptives/).
 
 Notes: Set the two roots below per machine -- `code' (this git repo) and `data'
     (Dropbox). Every path derives from them; nothing else is machine-specific.
-    Raw ATTOM/BUILTY parquet are created upstream from the Dewey API (torch_work/).
+    Raw ATTOM/BUILTY parquet are licensed Dewey downloads. Use a private
+    Dewey manifest; see clean/dewey_replication.md.
 ******************************************************************************/
 
 version 18
@@ -36,6 +37,7 @@ local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
 * -----------------------------------------------------------------------------
 
 // i) Clean 
+local import_dewey         = 0
 local import_nfip_policies = 1   
 local clean_fma            = 0
 local clean_nfip_claims    = 0   // PENDING: not sure how/if we will use this data, so pausing cleanup here
@@ -45,6 +47,7 @@ local clean_nfip_policies  = 0
 local filter_builty        = 0
 local split_states         = 0
 local match_attom          = 0
+local merge_fma            = 0
 local make_dta             = 0
 local build_nfip           = 0    // see header: needs reconciling with clean_nfip_claims.do
 local build_panels         = 0
@@ -54,6 +57,10 @@ local build_panels         = 0
 * -----------------------------------------------------------------------------
 
 // i) Clean
+if `import_dewey' == 1 {
+    shell `python' "`code'/clean/import_dewey.py" --data "`data'" ///
+        --manifest "`data'/raw/dewey/dewey_manifest.csv"
+}
 if `import_nfip_policies' == 1 {
     shell `python' "`code'/clean/import_nfip_policies.py" --data "`data'"
 }
@@ -79,6 +86,11 @@ if `split_states' == 1 {
 if `match_attom' == 1 {
     shell `python' "`code'/build/build_attom_onto_permits.py" --data "`data'" --state TX
     shell `python' "`code'/build/build_attom_onto_permits.py" --data "`data'" --state VA
+} //run with TORCH due to size, not locally
+
+if `merge_fma' == 1 {
+    shell `python' "`code'/build/build_fma_onto_builty_attom.py" --data "`data'" --state TX
+    shell `python' "`code'/build/build_fma_onto_builty_attom.py" --data "`data'" --state VA
 }
 if `make_dta' == 1 {
     shell `python' "`code'/build/parquetdta.py" --state TX --data "`data'"

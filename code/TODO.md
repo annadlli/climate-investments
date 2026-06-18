@@ -35,8 +35,9 @@ documented, behind a `0/1` switch (including whatever comes out of `torch_work/`
       `nfip_clean.do` computed them). Fold that logic into `clean_nfip_claims.do` (or before
       `nfip_build.do`), or drop `nfip_build.do` (its output isn't consumed by `build_nfip_hma_panels.do`).
       Also confirm the intended NFIP path: panels use **policies**, `nfip_build` uses **claims**.
-- [ ] **`import_dewey.ipynb`** — convert the notebook to a `.py` script, and rename off "Dewey" to the
-      actual underlying data source.
+- [x] **`import_dewey.py` source cleanup.** The notebook has been converted to a convention-style
+      `.py` script with `--data`. Real Dewey endpoint URLs and API keys are excluded from git; use
+      a private manifest based on `clean/dewey_manifest_template.csv`.
 
 ## NFIP data — claims / policies / multiple-loss (in progress, 2026-06-12)
 
