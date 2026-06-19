@@ -1,6 +1,6 @@
 # TODO — climate-investments
 
-_Last updated: 2026-06-12. Open handoff tasks + project state. Your coding agent surfaces the open
+_Last updated: 2026-06-19. Open handoff tasks + project state. Your coding agent surfaces the open
 items when you open the project (see CLAUDE.md / AGENTS.md). Follow `CONVENTIONS.md` as you work._
 
 ## ⭐ THE MAIN THING: the whole pipeline must be reproducible from `master.do`
@@ -30,11 +30,10 @@ documented, behind a `0/1` switch (including whatever comes out of `torch_work/`
 
 ## Pending / reconcile
 
-- [ ] **`nfip_build.do` ↔ `clean_nfip_claims.do` mismatch.** `nfip_build.do` uses `damage_ratio`,
-      `got_icc`, `bldg_damage_amt`, etc. that `clean_nfip_claims.do` doesn't produce (the old
-      `nfip_clean.do` computed them). Fold that logic into `clean_nfip_claims.do` (or before
-      `nfip_build.do`), or drop `nfip_build.do` (its output isn't consumed by `build_nfip_hma_panels.do`).
-      Also confirm the intended NFIP path: panels use **policies**, `nfip_build` uses **claims**.
+- [x] **`nfip_build.do` archived (2026-06-19).** Its claims→county-year output was consumed only by
+      Gen-1 `build/archive/` scripts (not by `build_nfip_hma_panels.do`, which builds from **policies**),
+      and it expected claims vars `clean_nfip_claims.do` doesn't produce. Moved to `build/archive/`
+      pending the parked ∆D / claims work. SFHA enumeration there is noted in `clean_nfip_policies.do`.
 - [x] **`import_dewey.py` source cleanup.** The notebook has been converted to a convention-style
       `.py` script with `--data`. Real Dewey endpoint URLs and API keys are excluded from git; use
       placeholder endpoint values in `clean/import_dewey.py` and fill them only in a secure/local
@@ -55,22 +54,64 @@ single-family → FMA-eligibility sample restriction); **multiple-loss** = RL/SR
       `clean/nfip_policies_raw/{st}.csv` (60.7M rows, 22GB; FL 21.9M, TX 11.3M, LA 8.3M). Wired into
       `master.do` (`import_nfip_policies` switch). Needs anaconda python (set `local python` to the full
       conda path — Stata's GUI PATH lacks conda; `pip install duckdb` done).
-- [~] **`clean_nfip_policies.do`** — **NEXT (resume here).** Rewrite to loop the per-state
-      `nfip_policies_raw/{st}.csv` and clean (mirror `clean_nfip_claims.do`: single-family
-      `occupancytype` in 1/11, destring protecting zero-padded keys, dates→years, label/order/sort) →
-      `clean/nfip_policies_{st}.dta`. Raw header is the 77 policy cols (lowercased/truncated on import).
-      NOTE: policies `countyCode` is already **5-digit FIPS** (e.g. 51710), unlike claims' 3-digit.
-      FL import ~5 min one-time (measured; accepted). Eligible-universe = distinct insured single-family
-      structures, but the dedup (policy-years → structures) belongs at **build**, not in this clean step.
-- [~] **`clean_nfip_multiple_loss.do`** — **in progress** (sketch committed). Download the MLP CSV
-      (`fema.gov/api/open/v1/NfipMultipleLossProperties.csv`, ~240k rows) → `raw/`; clean to an RL/SRL +
-      mitigation roster (use `fmaRl`/`fmaSrl` grant defs for FMA prioritization, not the insurance defs);
-      cell-match onto the eligible universe. Wire into `master.do` behind a `0` switch once tested.
+- [~] **`clean_nfip_policies.do`** — **mostly built (resume here).** Loops per-state raw CSVs →
+      single-family screen → `property_id = group(geo · construction_year · originalNBdate)` where
+      geo = census block group with ZIP fallback (beats Wagner's ZIP cell — ~0.7% collision on VA);
+      `sfha` = first-letter `A`/`V` (verified complete on VA); drops SFHA homes + rows missing
+      `property_id`; forces `elevated` monotonic within property; derives `policy_year` +
+      `construction_year`. Lean keep set (property_id, geography, construction_year, policy_year,
+      ratedfloodzone, elevated). **TODO:** finalize the `keep`/`save` (currently commented for
+      interactive testing + a `stop`), then run on TX+VA.
+- [~] **`clean_nfip_multiple_loss.do`** — import the MLP CSV
+      (`fema.gov/api/open/v1/NfipMultipleLossProperties.csv`, ~240k rows) → `raw/`, **basic cleaning
+      only**, save to `clean/`. **No sample restrictions** (it gets merged into policies, which already
+      carry them). Use `fmaRl`/`fmaSrl` grant defs (not insurance defs) for RL/SRL status. The
+      property/cell match moves to **build**, not here.
 - [ ] **SFHA handling.** Considering **dropping SFHA** (isolate full-BCA value-bias; SFHA elevations can
       use flat pre-calc benefits → different rules). Treat as an analysis-stage choice — keep the
       flood-zone variable in the clean files so the sample stays filterable either way. SFHA is derivable
       from the NFIP flood-zone fields (`A/AE/AH/AO/V/VE`); the non-NFIP property universe (ATTOM/Builty)
       needs NFHL.
+      **Decided 2026-06-19:** sample = NFIP-insured homes, so flood risk comes from the NFIP rated zone
+      (`ratedfloodzone`/`floodzonecurrent`, with the derived `sfha` flag in `clean_nfip_policies.do`) —
+      **NFHL not needed** (would only be required to tag the non-insured ATTOM/Builty universe).
+
+## Build → property-level analysis dataset (planned 2026-06-19)
+
+Goal: get to an analysis dataset fast for basic descriptives. Order of operations:
+
+1. **`clean_nfip_multiple_loss.do`** (clean stage, above) — import + basic clean + save; no restrictions.
+2. **Collapse NFIP policies** (new `build/` file) — produce **both grains and keep both on hand**:
+   (a) **property level** (one row per `property_id`), and (b) a **property×year panel**. For the
+   property-level file decide the per-variable collapse rule (`elevated` = max/most-recent, modal
+   `ratedfloodzone`, first/last `policy_year`, count of policy-years, …).
+3. **Compile property-level file** — **started: `build/compile.do`** (VA starter; collapse NFIP →
+   property, merge multiple-loss, merge FMA at county). Still to add: ATTOM property value.
+
+Flags to resolve when building (from the merge-logic analysis):
+- **OPEN: what's the best merge variable?** No shared `id` across NFIP files (0 overlap, by design).
+  Best key = string `geo (block group / ZIP) · construction_year · originalNBDate` (~0.5% collision on
+  VA, Wagner-style) — NOT the egen-integer `property_id` (numbered per-dataset, won't match across
+  files). Open: is ~0.5% collision OK; tiered fallback for non-matches?; 1492 construction sentinel.
+  **Next step: trial MLP↔policies merge, report match rate + 1:1 vs ambiguous.**
+- **PREREQ for `compile.do`:** `clean_nfip_policies` must retain `originalnbdate` (currently dropped)
+  so the NFIP base can build the string key; and re-run `clean_fma` (the saved `fma_elevation_grants.dta`
+  is pre-snake_case / stale).
+- **ATTOM is not a true property-key 1:1.** NFIP has no exact address (coarsened geo), so ATTOM links
+  only at the **cell level** (zip/tract × construction-year). The "ATTOM 1:1" step is really a
+  cell-level value join, not a parcel match. → property wealth ends up cell-level, not structure-level.
+- **FMA grain.** `fma_elevation_grants` is project-level; the existing builder aggregates to county×year, and
+  FMA has no property key to NFIP — so FMA attaches at **county (or county×year)**, not property. For
+  one row per property, decide whether to aggregate FMA to county (1:1) or keep a property×year panel
+  (the 1:m).
+
+## Expand state coverage beyond TX & VA (important)
+
+Current scope is TX + VA. NFIP **policies** (all 20 Wagner states already extracted to
+`clean/nfip_policies_raw/`), **FMA**, and **multiple-loss** are national/multi-state already — widening
+them is mostly flipping `local states` in `master.do`. **The binding constraint is ATTOM:** only
+`raw/attom_{tx,va}.parquet` are acquired, so more states need a **new ATTOM (Dewey) pull** via
+`torch_work`/the cluster. Prioritize expanding ATTOM coverage.
 
 ## Status / reference (done — for context)
 

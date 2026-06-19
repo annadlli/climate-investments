@@ -2,3 +2,7 @@
 
 # Claude Code personal settings (not shared)
 .claude/settings.local.json
+
+# Python build artifacts
+__pycache__/
+*.pyc

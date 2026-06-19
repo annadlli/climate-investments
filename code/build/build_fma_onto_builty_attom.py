@@ -11,7 +11,7 @@ Description:
 Notes / Sources:
     Permit input defaults to {data}/build/{state}_attom_permits_strict.parquet,
     produced by build_attom_onto_permits.py. FMA input defaults to
-    {data}/clean/hma_projects.dta. Output defaults to
+    {data}/clean/fma_elevation_grants.dta. Output defaults to
     {data}/build/{state}_attom_fma_permits_strict.parquet.
 """
 
@@ -50,7 +50,7 @@ def main() -> None:
 
     data = Path(args.data)
     permits_path = data / "build" / f"{state_lower}_attom_permits_strict.parquet"
-    fma_path = data / "clean" / "hma_projects.dta"
+    fma_path = data / "clean" / "fma_elevation_grants.dta"
     out_path = data / "build" / f"{state_lower}_attom_fma_permits_strict.parquet"
     diagnostics_path = out_path.with_name(f"{out_path.stem}_diagnostics.csv")
 

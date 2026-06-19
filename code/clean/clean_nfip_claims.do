@@ -14,7 +14,7 @@ args data
 * Import data
 import delimited using "`data'/raw/FIMaNFIPClaimsV2.csv", clear varnames(1) stringcols(_all)
 
-* Restrict to single-family homes.
+* Restrict to single-family homes
 keep if inlist(occupancytype, "1", "11")
 drop if inlist("1", agriculturestructureindicator, stateownedindicator)
 keep if inlist("1", buildingdescriptioncode) | mi(buildingdescriptioncode)

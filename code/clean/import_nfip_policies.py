@@ -1,8 +1,11 @@
-"""Extract NFIP policy records for selected states from the raw ~29GB OpenFEMA CSV.
+"""
+Author: Vendela Norman
+Date: 2026-06-19
 
-One duckdb pass (memory-safe) filters to --states and writes one CSV per state for
-clean_nfip_policies.do to import and clean. Read as strings so leading zeros in
-zip/county/tract/community survive. Kept broad -- trim columns in the .do, not here.
+Description: Splits the raw NFIP policies csv into per-state extracts.
+    Writres one CSV per state into clean/nfip_policies_raw/.
+
+Source: fema.gov/openfema-data-page/fima-nfip-redacted-policies-v2.
 """
 
 import argparse

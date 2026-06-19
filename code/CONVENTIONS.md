@@ -14,13 +14,13 @@ These cover all code in this repo (Stata `.do`, Python `.py` / `.ipynb`). Refere
 ## 1. File & folder names — NO SPACES
 
 - **Lowercase, words joined by underscores `_`. Never use spaces in a file or folder name.**
-  - ✅ `clean_hma.do`, `build_nfip_hma_panels.do`, `torch_work/`
+  - ✅ `clean_fma.do`, `build_nfip_hma_panels.do`, `torch_work/`
   - ❌ `clean hma.do`, `merge on exact.do`, `torch work/`
 - Spaces break shell calls (`shell python "$build/my script.py"`), `do` statements, and cross-platform paths. A new `.do`/`.py`/`.ipynb` with a space in the name is a convention error — rename it with underscores before committing.
 - Descriptive names, ideally one concern per file (`clean_nfip_claims.do`, not `do2.do`).
 - **Prefix construction files by stage/purpose:**
   - `clean/` files **must** start with `clean_` (cleans a raw source) or `import_` (data acquisition /
-    raw pull) — e.g. `clean_hma.do`, `import_dewey.ipynb`.
+    raw pull) — e.g. `clean_fma.do`, `import_dewey.py`.
   - `build/` files **should** start with `build_` where it reads naturally — e.g. `build_nfip_hma_panels.do`.
   - (Loose tier — `descriptives/`, `analysis/`, scratch — no required prefix.)
 
@@ -28,12 +28,12 @@ These cover all code in this repo (Stata `.do`, Python `.py` / `.ipynb`). Refere
 
 | Folder | Holds |
 |---|---|
-| `clean/` | data acquisition + raw → clean. **One `.do` per raw source** (`clean_hma.do`, …); acquisition notebooks (e.g. Dewey pulls) live here too. |
-| `build/` | clean → build/analysis (merges, panels). |
-| `descriptives/` | descriptive scripts. |
-| `analysis/` | regression analyses, estimation. |
-| `output/` | saved tables/graphs (artifacts, not code). |
-| `torch_work/` | upstream HPC data acquisition. |
+| `code/clean/` | data acquisition + raw → clean. **One `.do` per raw source** (`clean_fma.do`, …); acquisition scripts (e.g. `import_dewey.py`, `import_nfip_policies.py`) live here too. |
+| `code/build/` | clean → build/analysis (merges, panels). |
+| `code/descriptives/` | descriptive scripts. |
+| `code/analysis/` | regression analyses, estimation. |
+| `output/` | saved tables/graphs (artifacts, not code) — **repo-root sibling of `code/`**, not under it. |
+| `code/clean/archive/torch_work/` | upstream HPC data acquisition (NYU cluster) — archived. |
 | `<folder>/archive/` | superseded or dropped scripts — 
 
 ## 3. Paths — no machine-specific absolutes
@@ -41,8 +41,8 @@ These cover all code in this repo (Stata `.do`, Python `.py` / `.ipynb`). Refere
 - **Never hardcode a user path** (`/Users/anna/...`, `/Users/vendela...`) in a script. Ever.
 - Two roots, set once in `master.do`: `code` (this git repo) and `data` (Dropbox).
 - **Data lives in Dropbox**, never committed to git.
-- Children get the `data` root from `master.do` via `args data`. To run one on its own, pass it explicitly (`` do "clean_hma.do" "<data path>" ``) — **don't** bake in a fallback default, since that would be machine-specific.
-- **Mechanism (args-pass):** `master.do` sets `local code` + `local data` and passes the data root to each child — `` do "`code'/clean/clean_hma.do" "`data'" ``. The child reads it with `` args data `` and references its subpaths inline off that root (`` "`data'/clean/…" ``, `` "`data'/raw/…" ``) — no intermediate `` local clean `` / `` local raw ``. Python steps take `--data` (or `--input/--out-dir`).
+- Children get the `data` root from `master.do` via `args data`. To run one on its own, pass it explicitly (`` do "clean_fma.do" "<data path>" ``) — **don't** bake in a fallback default, since that would be machine-specific.
+- **Mechanism (args-pass):** `master.do` sets `local code` + `local data` and passes the data root to each child — `` do "`code'/clean/clean_fma.do" "`data'" ``. The child reads it with `` args data `` and references its subpaths inline off that root (`` "`data'/clean/…" ``, `` "`data'/raw/…" ``) — no intermediate `` local clean `` / `` local raw ``. Python steps take `--data` (or `--input/--out-dir`).
 
 ## 4. Headers — Meatpacking project banner
 
@@ -61,6 +61,11 @@ Notes / Sources: ...
 ## 5. Stata coding conventions
 
 - Label variables and datasets.
+- **Don't specify storage types** (`byte`, `int`, `long`, `str20`, …) on `gen`/`egen` unless
+  genuinely necessary. Let Stata pick the default and rely on `compress` before `save` to right-size.
+- **Organize each cleaner's tail into cohesive, single-purpose blocks, in this order:**
+  **label → order → sort → save** (with `compress` just before `save`). Label *all* variables together
+  in one block at the end — don't scatter `label var` lines through the script.
 - **Never use `destring ..., replace force`.** Without `force`, `destring` refuses to convert a variable that holds any non-numeric character and leaves it untouched — a useful guardrail. `force` overrides that and recodes every unparseable value to missing (`.`), silently dropping data. If a `destring` won't go through cleanly, diagnose *why* first: strip stray characters (`destring var, replace ignore("$,%")`) or keep the variable as a string — don't `force` past it.
 
 ## 6. Workflow

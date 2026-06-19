@@ -14,22 +14,17 @@ Description: Builds the NFIP/HMA property- and county-level panels.
 Outputs: analysis/{state}_property_nfip_hma.dta, analysis/{state}_county_nfip_hma.dta
 ******************************************************************************/
 
-version 17
+version 18
 
-args data
-local dclean    "`data'/clean"
-local dbuild    "`data'/build"
-local danalysis "`data'/analysis"
+args data states
 
-capture mkdir "`danalysis'"
-
-local states "tx va"
+capture mkdir "`data'/analysis"
 
 ********************************************************************************
 * 1. HMA county-year file, for both property and county panels
 ********************************************************************************
 
-use "`dclean'/hma_projects.dta", clear
+use "`data'/clean/fma_elevation_grants.dta", clear
 
 gen str2 state_abbr = ""
 replace state_abbr = "TX" if statenumbercode == 48
@@ -87,7 +82,8 @@ save `hma_cy', replace
 
 foreach st of local states {
 
-    local ST = upper("`st'")
+    local st = strlower("`st'")
+    local ST = strupper("`st'")
     local sfips = cond("`ST'" == "TX", "48", "51")
 
     di as text "============================================================"
@@ -98,7 +94,7 @@ foreach st of local states {
     * 2A. NFIP base and tiered policy-cell summaries
     ***************************************************************************
 
-    use "`dclean'/nfip_policies_`st'.dta", clear
+    use "`data'/clean/nfip_policies_`st'.dta", clear
 
     * Wagner-style residential homeowner sample.
     keep if single_family_policy == 1 & primary_residence == 1
@@ -242,7 +238,7 @@ foreach st of local states {
     * 2B. Property panel: Builty+ATTOM base, then tiered NFIP and HMA
     ***************************************************************************
 
-    use "`dbuild'/`st'_attom_builty.dta", clear
+    use "`data'/build/`st'_attom_builty.dta", clear
     gen long _pid = _n
     gen str2 state_abbr = "`ST'"
 
@@ -332,7 +328,7 @@ foreach st of local states {
     }
 
     drop _pid
-    save "`danalysis'/`st'_property_nfip_hma.dta", replace
+    save "`data'/analysis/`st'_property_nfip_hma.dta", replace
     tab nfip_match_tier
 
     ***************************************************************************
@@ -352,7 +348,7 @@ foreach st of local states {
     duplicates drop
     save `county_base', replace
 
-    use "`dclean'/all_builty_elevations.dta", clear
+    use "`data'/clean/all_builty_elevations.dta", clear
     keep if upper(STATE) == "`ST'"
     capture confirm variable event_year
     if !_rc {
@@ -434,10 +430,10 @@ foreach st of local states {
 
     order state_abbr fips_county year
     sort fips_county year
-    save "`danalysis'/`st'_county_nfip_hma.dta", replace
+    save "`data'/analysis/`st'_county_nfip_hma.dta", replace
 
     count if hma_fema_any == 1
     di as result "`ST' county HMA county-years retained: " r(N)
 }
 
-di as result "Done: property and county NFIP/HMA panels written to `danalysis'"
+di as result "Done: property and county NFIP/HMA panels written to `data'/analysis"

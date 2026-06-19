@@ -32,14 +32,15 @@ in `master.do`; no hardcoded user paths in scripts.)
 ## Pipeline (`master.do`, construction only)
 
 ```
-clean/clean_hma.do               -> clean/hma_projects.dta   (FMA private home-elevation projects)
+clean/import_nfip_policies.py    -> clean/nfip_policies_raw/{st}.csv   (split national file per state)
+clean/clean_fma.do               -> clean/fma_elevation_grants.dta   (FMA private home-elevation projects)
 clean/clean_nfip_claims.do       -> clean/nfip_claims.dta
 clean/clean_nfip_policies.do     -> clean/nfip_policies_{tx,va}.dta
 build/build_builty_filter.py     -> build/all_builty_elevations.parquet
 build/build_split_builty_states.py     -> build/{state}_flood_elevation_strict.parquet
-build/build_attom_onto_permits.py      match ATTOM onto split Builty state files
+build/build_attom_onto_permits.py      -> build/{state}_attom_permits_strict.parquet
+build/build_fma_onto_builty_attom.py   -> build/{state}_attom_fma_permits_strict.parquet
 build/parquetdta.py              -> build/{state}_attom_builty.dta
-build/nfip_build.do              NFIP claims -> county-year   [BROKEN — see flag]
 build/build_nfip_hma_panels.do   -> analysis/{state}_{property,county}_nfip_hma.dta
 ```
 
@@ -51,14 +52,14 @@ county×year).
 ```
 code/
 ├── master.do                 local code/data roots, args-pass + 0/1 switches; clean + build
-├── clean/                    clean_hma.do, clean_nfip_claims.do, clean_nfip_policies.do
-│   └── archive/              clean_nri.do, clean_npr.do, nri_prep.py   (dropped sources)
+├── clean/                    import_*.py (acquisition) + clean_fma / clean_nfip_* (raw -> clean)
+│   └── archive/              dropped sources (clean_nri/npr, nri_prep) + torch_work/ (NYU cluster acquisition)
 ├── build/                    active Gen-2 .py/.do (above) + parquetdta.py
-│   └── archive/              merge_npr_onto_state_panels.do  (Gen-1 leftovers still held in build/)
-├── descriptives/archive/     Gen-1 descriptive scripts (read old data; await rebuild on Gen-2 panels)
-├── analysis/archive/         Gen-1 analysis: regressions, RD, identification (same — await rebuild)
-├── output/                   saved .gph graphs
-└── torch_work/               upstream Dewey/ATTOM acquisition (NYU cluster)
+│   └── archive/              Gen-1 merge/panel scripts + nfip_build.do (superseded)
+├── descriptives/             descriptive scripts (Gen-1 in descriptives/archive/, await rebuild)
+└── analysis/                 regressions, RD, identification (Gen-1 in analysis/archive/, await rebuild)
+
+output/                       saved .gph graphs — repo-root sibling of code/ (artifacts, not code)
 ```
 
 Data (Dropbox `Flooding/Data/`): `raw → clean → build → analysis`, NOT under `code/`.
@@ -68,6 +69,22 @@ Data (Dropbox `Flooding/Data/`): `raw → clean → build → analysis`, NOT und
 Builty permits, ATTOM property values, FEMA **HMA (FMA home-elevation projects only)**, FEMA NFIP **claims** and
 **policies**. **Dropped 2026-05-29:** NRI, NPR buyouts, ClimateRisk (old code in `clean/archive/`
 and `build/archive/`).
+
+## Merge logic & eligible universe
+
+Each source contributes distinct columns: **NFIP policies** = elevation status/measures + insurance &
+flood-zone context; **ATTOM** = exact address + property valuation; **FMA** = federal-funding flag
+(county×year); **Builty** = permit-level elevation events (a precision option, currently
+deprioritized). NFIP carries no exact address (lat/long are coarsened to ~1 decimal), so it is joined
+by **fuzzy Wagner cells, not 1:1**. The relevant match is Wagner's **property match**
+(`4_merge_all_houses.do`): cell = `{zip OR community} × construction-year × flood-zone × policy-year`
+(zip primary, community fallback) — this is how NFIP links to ATTOM/permits (and `build_nfip_hma_panels.do`
+mirrors it). The redacted policy file is **transaction-level** (~5–6 policy-years per structure);
+dropping the policy-year from that cell deduped to *approximate structures*. (Wagner's separate
+policy↔claims match adds `org_nb_dt`/`srl_ind`/`count_buy` — not used here.) Eligible universe =
+**NFIP-insured single-family structures**; NFIP's own elevation flag + rated flood zone mean
+**neither Builty nor NFHL is needed** for the structure-level universe — ATTOM is pulled in (fuzzily
+linked) only for property-level valuation.
 
 ## Reference: Wagner replication repo
 
@@ -82,4 +99,4 @@ differs from hers (we estimate additionality + ∆D, not adverse selection), so 
 
 ## Open issues & handoff
 
-Tracked in [TODO.md](TODO.md) — pending work, the `nfip_build` reconciliation, and what's archived.
+Tracked in [TODO.md](TODO.md) — pending work and what's archived.
