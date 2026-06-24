@@ -43,8 +43,10 @@ local clean_nfip_multiple_loss = 1
 local filter_builty            = 0
 local split_states             = 0
 local match_attom              = 0
+local build_attom_values       = 0
 local merge_fma                = 0
 local make_dta                 = 0
+local compile_property         = 0
 local build_panels             = 0
 
 * -----------------------------------------------------------------------------
@@ -85,6 +87,11 @@ if `match_attom' == 1 { //run with TORCH due to size, not locally
         shell `python' "`code'/build/build_attom_onto_permits.py" --data "`data'" --state "`state'"
     }
 } 
+if `build_attom_values' == 1 { //run with TORCH due to size, not locally
+    foreach state of local states {
+        shell `python' "`code'/build/build_attom_value_cells.py" --data "`data'" --state "`state'"
+    }
+}
 if `merge_fma' == 1 {
     foreach state of local states {
         shell `python' "`code'/build/build_fma_onto_builty_attom.py" --data "`data'" --state "`state'"
@@ -95,7 +102,9 @@ if `make_dta' == 1 {
         shell `python' "`code'/build/parquetdta.py" --state "`state'" --data "`data'"
     }
 }
+if `compile_property' == 1 {
+    do "`code'/build/compile.do" "`data'" "`states'"
+}
 if `build_panels' == 1 {
     do "`code'/build/build_nfip_hma_panels.do" "`data'" "`states'"
 }
-

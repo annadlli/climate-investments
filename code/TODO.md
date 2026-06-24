@@ -81,12 +81,12 @@ single-family → FMA-eligibility sample restriction); **multiple-loss** = RL/SR
 Goal: get to an analysis dataset fast for basic descriptives. Order of operations:
 
 1. **`clean_nfip_multiple_loss.do`** (clean stage, above) — import + basic clean + save; no restrictions.
-2. **Collapse NFIP policies** (new `build/` file) — produce **both grains and keep both on hand**:
-   (a) **property level** (one row per `property_id`), and (b) a **property×year panel**. For the
-   property-level file decide the per-variable collapse rule (`elevated` = max/most-recent, modal
-   `ratedfloodzone`, first/last `policy_year`, count of policy-years, …).
-3. **Compile property-level file** — **started: `build/compile.do`** (VA starter; collapse NFIP →
-   property, merge multiple-loss, merge FMA at county). Still to add: ATTOM property value.
+2. **Build ATTOM value cells** — `build/build_attom_value_cells.py` aggregates raw ATTOM parquet to
+   ZIP×construction-year, ZIP×construction-decade, county×construction-year, and
+   county×construction-decade value cells. Torch wrapper: `build/build_attom_value_cells.sh`.
+3. **Compile property-level file** — **paused: don't edit `build/compile.do` for now.** Current
+   `compile.do` remains the VA starter sketch. **TODO:** after ATTOM value-cell files exist, decide
+   whether to extend `compile.do` or create a new build file for the NFIP + ATTOM value-cell merge.
 
 Flags to resolve when building (from the merge-logic analysis):
 - **OPEN: what's the best merge variable?** No shared `id` across NFIP files (0 overlap, by design).
