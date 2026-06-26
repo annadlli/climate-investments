@@ -18,6 +18,7 @@ Notes / Sources:
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 from datetime import datetime
 from pathlib import Path
@@ -49,9 +50,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--datasets",
         nargs="+",
-        default=sorted(DEWEY_ENDPOINTS),
-        choices=sorted(DEWEY_ENDPOINTS),
-        help="Dewey datasets to download.",
+        default=None,
+        help=(
+            "Named built-in Dewey datasets to download. Ignored when --manifest "
+            "is passed unless --datasets is also used to filter manifest rows."
+        ),
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help=(
+            "Optional private CSV with one Dewey endpoint per row. Required columns: "
+            "name, endpoint. Optional column: folder. Each row downloads to its own folder."
+        ),
     )
     parser.add_argument(
         "--run-id",
@@ -63,7 +74,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional output root. Defaults to {data}/raw/dewey.",
     )
+    parser.add_argument(
+        "--skip-exists",
+        action="store_true",
+        help="Skip files that already exist in the destination folder.",
+    )
     return parser.parse_args()
+
+
+def clean_folder_name(value: str) -> str:
+    return value.strip().strip("/").replace(" ", "_")
 
 
 def endpoint_for(dataset: str) -> str:
@@ -76,12 +96,60 @@ def endpoint_for(dataset: str) -> str:
     return endpoint
 
 
+def read_manifest(path: Path) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {"name", "endpoint"}
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(
+                f"Manifest {path} is missing required column(s): {', '.join(sorted(missing))}"
+            )
+
+        for line_number, row in enumerate(reader, start=2):
+            name = (row.get("name") or "").strip()
+            endpoint = (row.get("endpoint") or "").strip()
+            folder = clean_folder_name(row.get("folder") or name)
+            if not name or not endpoint:
+                raise ValueError(f"Manifest {path} has a blank name or endpoint on line {line_number}.")
+            rows.append({"name": name, "endpoint": endpoint, "folder": folder})
+
+    if not rows:
+        raise ValueError(f"Manifest {path} has no endpoint rows.")
+    return rows
+
+
+def built_in_rows(datasets: list[str]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    unknown = sorted(set(datasets) - set(DEWEY_ENDPOINTS))
+    if unknown:
+        raise ValueError(f"Unknown built-in dataset(s): {', '.join(unknown)}")
+    for dataset in datasets:
+        rows.append(
+            {
+                "name": dataset,
+                "endpoint": endpoint_for(dataset),
+                "folder": clean_folder_name(dataset),
+            }
+        )
+    return rows
+
+
 def main() -> None:
     args = parse_args()
     if not args.api_key:
         raise ValueError("Pass --api-key or set DEWEY_API_KEY.")
 
-    endpoints = {dataset: endpoint_for(dataset) for dataset in args.datasets}
+    if args.manifest:
+        downloads = read_manifest(Path(args.manifest))
+        if args.datasets:
+            wanted = set(args.datasets)
+            downloads = [row for row in downloads if row["name"] in wanted]
+            if not downloads:
+                raise ValueError("No manifest rows matched --datasets.")
+    else:
+        downloads = built_in_rows(args.datasets or sorted(DEWEY_ENDPOINTS))
 
     data = Path(args.data)
     out_root = Path(args.out_dir) if args.out_dir else data / "raw" / "dewey"
@@ -90,19 +158,20 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Run directory: {run_dir}")
-    print(f"Datasets: {', '.join(args.datasets)}")
+    print(f"Downloads: {', '.join(row['name'] for row in downloads)}")
 
     import deweydatapy as ddp
 
-    for dataset in args.datasets:
-        dataset_dir = run_dir / dataset
+    for row in downloads:
+        dataset = row["name"]
+        dataset_dir = run_dir / row["folder"]
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"\nFetching {dataset} file list from Dewey...")
-        files = ddp.get_file_list(args.api_key, endpoints[dataset], print_info=True)
+        files = ddp.get_file_list(args.api_key, row["endpoint"], print_info=True)
 
         print(f"Downloading {dataset} files to {dataset_dir}...")
-        ddp.download_files(files, str(dataset_dir))
+        ddp.download_files(files, str(dataset_dir), skip_exists=args.skip_exists)
 
     print("\nAll Dewey downloads complete.")
 
