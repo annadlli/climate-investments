@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Vendela Norman
-Date: 2026-06-19
+Date: 2026-06-25
 
 Description: Cleans the FEMA NFIP redacted policies data, restricting to 
     single-family residential policies.
@@ -47,12 +47,20 @@ foreach st of local states {
     // egen property_id = group(zipcode construction_year ratedfloodzone nfipratedcommunitynumber) // (following Wagner, 2021) 
     gen geo_key = cond(missing(censusblockgroupfips) | censusblockgroupfips == "", ///
         "z" + zipcode, "b" + censusblockgroupfips)
-    egen property_id = group(geo_key construction_year originalnbdate)
+    egen property_id = group(geo_key originalconstructiondate originalnbdate)
     drop geo_key
     // iv) SFHA (Special Flood Hazard Area )
     // Note: Not sure about current vs. rated flood zone distinction
     gen sfha = inlist(substr(ratedfloodzone, 1, 1), "A", "V") if !mi(ratedfloodzone) 
-    drop policyeffectivedate originalconstructiondate
+    drop policyeffectivedate 
+
+    * Convert merge variables to date format
+    foreach v of varlist originalnbdate originalconstructiondate {
+        gen _d = date(substr(`v',1,10), "YMD")
+        drop `v'
+        rename _d `v'
+        format `v' %td
+    }
 
     * Destring variables 
     destring elevated primary_residence, replace
@@ -68,11 +76,11 @@ foreach st of local states {
 
     * Additional sample restrictions
     // i) Drop homes in SFHAs 
-    // Note: These are subject to different BCR calculations (flat pre-calculated benefits)
+    // Note: These are subject to different BCR calculations (flat, pre-calculated benefits)
     drop if sfha == 1
     drop sfha
-    // ii) Drop if missing key variables 
-    drop if missing(property_id)
+    // ii) Drop if missing key variables
+    drop if missing(property_id) 
 
     * Fix data errors 
     // i) Elevations must be monotonic (once 1, stays 1) within property over time
@@ -85,7 +93,7 @@ foreach st of local states {
     // Note: Temporary. Will expand variable set later on nfip
     keep property_id state countycode nfipratedcommunitynumber zipcode censustract ///
         censusblockgroupfips construction_year policy_year ratedfloodzone elevated ///
-        primary_residence 
+        primary_residence originalnbdate originalconstructiondate
 
     * Label 
     label var property_id              "Property ID"
@@ -95,6 +103,8 @@ foreach st of local states {
     label var zipcode                  "ZIP code"
     label var censustract              "Census tract"
     label var censusblockgroupfips     "Census block group"
+    label var originalnbdate           "Original date of flood policy"
+    label var originalconstructiondate "Original construction date"
     label var construction_year        "Construction year"
     label var policy_year              "Policy effective year"
     label var ratedfloodzone           "NFIP rated flood zone"
@@ -102,13 +112,11 @@ foreach st of local states {
     label var primary_residence        "Primary residence"
 
     * Save
-    order property_id state censusblockgroupfips construction_year policy_year ///
-     ratedfloodzone elevated
-    order countycode nfipratedcommunitynumber zipcode censustract, last
-    sort property_id state countycode nfipratedcommunitynumber zipcode censustract ///
-        censusblockgroupfips policy_year
+    order property_id state zipcode censusblockgroupfips policy_year originalnbdate ///
+        originalconstructiondate construction_year ratedfloodzone elevated
+    order countycode nfipratedcommunitynumber censustract, last
+    sort property_id state countycode zipcode censustract censusblockgroupfips policy_year
     compress 
     sa "`data'/clean/nfip_policies_state/`stl'.dta", replace
-    stop 
 
 }

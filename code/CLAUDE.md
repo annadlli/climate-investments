@@ -36,16 +36,17 @@ clean/import_nfip_policies.py    -> clean/nfip_policies_raw/{st}.csv   (split na
 clean/clean_fma.do               -> clean/fma_elevation_grants.dta   (FMA private home-elevation projects)
 clean/clean_nfip_claims.do       -> clean/nfip_claims.dta
 clean/clean_nfip_policies.do     -> clean/nfip_policies_{tx,va}.dta
-build/build_builty_filter.py     -> build/all_builty_elevations.parquet
-build/build_split_builty_states.py     -> build/{state}_flood_elevation_strict.parquet
-build/build_attom_onto_permits.py      -> build/{state}_attom_permits_strict.parquet
-build/build_fma_onto_builty_attom.py   -> build/{state}_attom_fma_permits_strict.parquet
-build/parquetdta.py              -> build/{state}_attom_builty.dta
-build/build_nfip_hma_panels.do   -> analysis/{state}_{property,county}_nfip_hma.dta
+build/build_attom_value_cells.py -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
+                                    (.sh = Torch/SLURM wrapper)
+build/compile.do                 -> property-level compile (VA starter; paused, see TODO.md)
 ```
 
-`build_nfip_hma_panels.do` is the core builder (tiered Wagner NFIP-policy matching + HMA at
-county×year).
+`build_attom_value_cells.py` aggregates raw ATTOM to ZIP/county × construction-year/decade value
+cells — NFIP has no street address, so these merge property values onto the NFIP universe by cell.
+
+The Builty-permit chain (`build_builty_filter` / `build_split_builty_states` /
+`build_attom_onto_permits` / `build_fma_onto_builty_attom` / `parquetdta` / `build_nfip_hma_panels`)
+is **deprioritized and moved to `build/archive/`** — a precision option, not the current path.
 
 ## Repository layout
 
@@ -54,8 +55,8 @@ code/
 ├── master.do                 local code/data roots, args-pass + 0/1 switches; clean + build
 ├── clean/                    import_*.py (acquisition) + clean_fma / clean_nfip_* (raw -> clean)
 │   └── archive/              dropped sources (clean_nri/npr, nri_prep) + torch_work/ (NYU cluster acquisition)
-├── build/                    active Gen-2 .py/.do (above) + parquetdta.py
-│   └── archive/              Gen-1 merge/panel scripts + nfip_build.do (superseded)
+├── build/                    active: build_attom_value_cells.py (+.sh), compile.do
+│   └── archive/              Gen-1 merge/panel scripts + nfip_build.do + deprioritized Builty chain
 ├── descriptives/             descriptive scripts (Gen-1 in descriptives/archive/, await rebuild)
 └── analysis/                 regressions, RD, identification (Gen-1 in analysis/archive/, await rebuild)
 

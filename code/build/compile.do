@@ -1,32 +1,44 @@
 /******************************************************************************
 Authors: Vendela Norman
-Date: 2026-06-19
+Date: 2026-06-25
 
-CLAUDE SKETCH TO BE AUDITED
+Description: Compiles the property-level analysis dataset, starting from NFIP-
+    insured homes. 
 
-Description: Compiles the property-level analysis dataset. Base = NFIP policies
-    (eligible-homes universe) collapsed to one row per property; then merges in
-    NFIP multiple-loss (RL/SRL status) and FMA grants (county level).
-
-    STARTER -- VA only for now.
-    TODO: generalize to all states (loop `states`); confirm the NFIP base is
-    property-level (collapse policy-years -> property, below).
-
-Inputs:  clean/nfip_policies_state/{st}.dta   (policy-year level)
-         clean/nfip_multiple_loss.dta          (RL/SRL roster, national)
-         clean/fma_elevation_grants.dta        (FMA grants, national, project level)
-Output:  build/compile_{st}.dta                (property level)
-
-PREREQUISITE -- cross-dataset match key:
-    The merges join on a STRING key  prop_key = geo | construction_year | originalNBDate
-    (geo = census block group, ZIP fallback), built identically in each file.
-    NOT on `property_id` -- that is an egen-group integer numbered per-dataset and will
-    NOT match across files.
-    clean_nfip_policies must retain `originalnbdate` (it currently drops it) so the NFIP
-    base can form prop_key. MLP + FMA already carry their components.
 ******************************************************************************/
 
 args data
+
+* Import NFIP policy data 
+// Note: Just Texas for now
+use "`data'/clean/nfip_policies_state/tx.dta", clear
+
+* Merge NFIP multiple-loss data 
+// Note: Many properties go unmatched because the MLP dataset is a claims subset
+// of the NFIP policies data?
+merge m:1 originalconstructiondate censusblockgroupfips originalnbdate ///
+    using "`data'/clean/nfip_multiple_loss.dta", keep(1 3) keepusing(fma_rl fma_srl)
+
+* Set missing RL/SRL to 0    
+replace fma_rl = 0 if missing(fma_rl)
+replace fma_srl = 0 if missing(fma_srl)
+
+stop 
+
+
+
+
+
+
+stop 
+
+
+
+
+
+
+
+
 
 * -----------------------------------------------------------------------------
 * 1. NFIP base: collapse policy-years -> one row per property (VA)
