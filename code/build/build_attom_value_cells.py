@@ -58,8 +58,9 @@ def clean_for_stata(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def write_tier(con: duckdb.DuckDBPyConnection, tier: str, select_keys: str, group_keys: str, out_path: Path) -> None:
+def prepare_latest_property(con: duckdb.DuckDBPyConnection) -> None:
     query = f"""
+        CREATE OR REPLACE TEMP TABLE latest_property AS
         WITH attom_clean AS (
             SELECT
                 regexp_extract(trim(cast(PROPERTYADDRESSZIP AS varchar)), '^(\\d{{5}})', 1) AS zip_key,
@@ -88,6 +89,14 @@ def write_tier(con: duckdb.DuckDBPyConnection, tier: str, select_keys: str, grou
                 ORDER BY tax_year_assessed DESC NULLS LAST
             ) = 1
         )
+        SELECT *
+        FROM latest_property
+    """
+    con.execute(query)
+
+
+def write_tier(con: duckdb.DuckDBPyConnection, tier: str, select_keys: str, group_keys: str, out_path: Path) -> None:
+    query = f"""
         SELECT
             {select_keys},
             count(*) AS attom_n_records,
@@ -127,6 +136,8 @@ def main() -> None:
 
     print(f"Reading ATTOM parquet: {in_path}")
     con.execute(f"CREATE VIEW attom_raw AS SELECT * FROM read_parquet({quote_sql(str(in_path))})")
+    print("Preparing latest ATTOM property records...")
+    prepare_latest_property(con)
 
     write_tier(
         con,

@@ -20,7 +20,9 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import time
 from datetime import datetime
+from urllib.parse import unquote, urlparse
 from pathlib import Path
 
 
@@ -76,8 +78,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--skip-exists",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Skip files that already exist in the destination folder.",
+    )
+    parser.add_argument(
+        "--retries",
+        default=10,
+        type=int,
+        help="Number of download attempts per file.",
+    )
+    parser.add_argument(
+        "--retry-sleep",
+        default=60,
+        type=int,
+        help="Seconds to wait after a failed download attempt.",
     )
     return parser.parse_args()
 
@@ -136,10 +151,95 @@ def built_in_rows(datasets: list[str]) -> list[dict[str, str]]:
     return rows
 
 
+def file_name_from_row(row: dict[str, object]) -> str:
+    for col in ["filename", "file_name", "name", "object_name", "path", "file", "key"]:
+        value = row.get(col)
+        if value is not None and str(value).strip():
+            return Path(str(value).strip()).name
+
+    link = str(row["link"])
+    parsed = urlparse(link)
+    name = Path(unquote(parsed.path)).name
+    if not name:
+        raise ValueError("Could not infer Dewey filename from file-list row.")
+    return name
+
+
+def valid_parquet_file(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(4)
+            handle.seek(-4, 2)
+            footer = handle.read(4)
+        return header == b"PAR1" and footer == b"PAR1"
+    except OSError:
+        return False
+
+
+def robust_download_files(files, dest_dir: Path, skip_exists: bool, retries: int, retry_sleep: int) -> None:
+    import requests
+
+    records = files.to_dict("records")
+    total = len(records)
+
+    for i, row in enumerate(records, start=1):
+        if "link" not in row or not str(row["link"]).strip():
+            raise ValueError("Dewey file list is missing required 'link' column.")
+
+        filename = file_name_from_row(row)
+        dest_path = dest_dir / filename
+        part_path = dest_path.with_name(dest_path.name + ".part")
+
+        if skip_exists and dest_path.exists() and dest_path.stat().st_size > 0:
+            print(f"Skipping existing {i}/{total}: {dest_path}", flush=True)
+            continue
+
+        if part_path.exists():
+            part_path.unlink()
+
+        print(f"Downloading {i}/{total}: {dest_path}", flush=True)
+        last_error: Exception | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                with requests.get(str(row["link"]), stream=True, timeout=(30, 300)) as response:
+                    response.raise_for_status()
+                    expected = int(response.headers.get("Content-Length", "0") or 0)
+                    written = 0
+                    with part_path.open("wb") as handle:
+                        for chunk in response.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                handle.write(chunk)
+                                written += len(chunk)
+
+                if expected and written != expected:
+                    raise IOError(f"Incomplete download: wrote {written} bytes, expected {expected}")
+                if dest_path.suffix == ".parquet" and not valid_parquet_file(part_path):
+                    raise IOError("Incomplete parquet download: missing PAR1 header/footer")
+
+                part_path.replace(dest_path)
+                break
+            except (OSError, requests.RequestException) as exc:
+                last_error = exc
+                if part_path.exists():
+                    part_path.unlink()
+                if attempt == retries:
+                    raise RuntimeError(f"Failed downloading {dest_path} after {retries} attempts.") from exc
+                print(
+                    f"  attempt {attempt}/{retries} failed: {exc}. Retrying in {retry_sleep}s...",
+                    flush=True,
+                )
+                time.sleep(retry_sleep)
+
+        if last_error is None:
+            continue
+
+
 def main() -> None:
     args = parse_args()
     if not args.api_key:
         raise ValueError("Pass --api-key or set DEWEY_API_KEY.")
+    if args.retries < 1:
+        raise ValueError("--retries must be at least 1.")
 
     if args.manifest:
         downloads = read_manifest(Path(args.manifest))
@@ -171,7 +271,13 @@ def main() -> None:
         files = ddp.get_file_list(args.api_key, row["endpoint"], print_info=True)
 
         print(f"Downloading {dataset} files to {dataset_dir}...")
-        ddp.download_files(files, str(dataset_dir), skip_exists=args.skip_exists)
+        robust_download_files(
+            files,
+            dataset_dir,
+            skip_exists=args.skip_exists,
+            retries=args.retries,
+            retry_sleep=args.retry_sleep,
+        )
 
     print("\nAll Dewey downloads complete.")
 
