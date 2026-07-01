@@ -15,8 +15,8 @@ set more off
 * Locals
 * -----------------------------------------------------------------------------
 
-// States
-local states "TX VA"
+// States (Wagner's Atlantic + Gulf Coast states)
+local states "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
 
 // Dewey/ATTOM acquisition inputs. The manifest is private because it contains
 // licensed Dewey endpoint URLs. compile_attom_batches requires an existing run id.
@@ -48,8 +48,8 @@ local clean_cpi                = 0 // clean CPI deflator data
 local clean_fma                = 0 // clean FEMA FMA data
 local clean_nfip_policies      = 0 // clean NFIP policies data
 local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
-local collapse_fma_county      = 1 // collapse FMA grants to county level
-local collapse_nfip_policies   = 0 // collapse NFIP policy data to property level
+local collapse_fma_county      = 0 // collapse FMA grants to county level
+local collapse_nfip_policies   = 1 // collapse NFIP policy data to property level
 
 // ii) Build
 local compile                  = 1 // compile property-level analysis dataset

@@ -38,6 +38,7 @@ drop year cpi */
 
 * Save analysis dataset
 sort state zipcode censusblockgroupfips
+compress
 save "`data'/analysis/analysis.dta", replace
 
 stop 
