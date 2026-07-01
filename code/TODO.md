@@ -105,6 +105,41 @@ Flags to resolve when building (from the merge-logic analysis):
   one row per property, decide whether to aggregate FMA to county (1:1) or keep a property×year panel
   (the 1:m).
 
+## Integrate HMA Mitigated Properties (property-level FMA)
+
+We currently use only the **HMA Projects** file (`clean_fma.do` → `fma_elevation_grants.dta`),
+which is project-level with **county** as its geographic floor. FEMA also publishes a
+**property-level** companion — one row per mitigated structure:
+`fema.gov/api/open/v4/HazardMitigationAssistanceMitigatedProperties` (99,255 records national;
+5,882 are FMA). Fields: `programArea`, `programFy`, `projectIdentifier`, `propertyAction`
+(Elevation vs Acquisition/Demolition/…), `structureType`, `foundationType`, `county`, `city`,
+`zip`, `damageCategory`, `actualAmountPaid`, `numberOfProperties`.
+
+- **Finest geography is ZIP** (`county`/`city`/`zip` only — no address/lat-long/block group;
+  FEMA redacts sub-ZIP). So this file gets FMA from county → ZIP, but **cannot** reach the
+  block-group grain targeted for the NFIP/ATTOM cells. ZIP-vs-county-vs-something-coarser for
+  FMA is a design decision, not resolved here. (Note: ZIP was flagged as too coarse for the
+  property-value merge; FMA is a funding/treatment-context measure, so its grain tradeoff differs.)
+- **Complementary to Projects, not redundant.** This file has property-level elevation flags +
+  ZIP + single-family type but **`actualAmountPaid` is only ~2% filled** (no dollars). Projects
+  has the dollars/BCR at county. The two are **linkable by `projectIdentifier`** (in both), so
+  project $ can be allocated onto the ZIP-located property records if both grain and $ are wanted.
+- **Consistency (checked 2026-07-01): linkable but NOT count-consistent.** `projectIdentifier`
+  joins ~90% of projects (1027/1071 Projects-elev IDs appear in MitProps; 978/1104 the other way).
+  BUT MitProps under-reports: it holds only ~49% of the finalized elevations Projects records
+  (national 3,001 vs `numberOfFinalProperties` 6,094; TX 264 vs 806 = 33%; VA 80 vs 128 = 63%).
+  Not planned-vs-final (final ≈ planned). Known FEMA gap — not every mitigated structure is
+  individually logged. → **Don't use MitProps as the authoritative elevation count.** Best use:
+  Projects = authoritative county totals + $; MitProps = within-county ZIP *shares* + property
+  attributes; allocate Projects totals to ZIP via those shares (join on `projectIdentifier`),
+  caveat that the reported ~half is assumed geographically representative.
+- **Scale is sparse:** FMA elevations = 3,001 national, **264 TX (71 zips) / 80 VA (25 zips)** —
+  thin at zip×year; may force pooling years or falling back to county for power.
+
+**TODO:** add the acquisition (endpoint → `raw/`) and a `clean_fma_mitigated.do` that filters to
+`programArea=='FMA'` + `propertyAction` contains "Elevation" + `structureType=='Single Family'`,
+then decides the aggregation grain (open). Wire into `master.do` behind a switch beside `clean_fma`.
+
 ## Expand state coverage beyond TX & VA (important)
 
 Current scope is TX + VA. NFIP **policies** (all 20 Wagner states already extracted to
@@ -112,6 +147,62 @@ Current scope is TX + VA. NFIP **policies** (all 20 Wagner states already extrac
 them is mostly flipping `local states` in `master.do`. **The binding constraint is ATTOM:** only
 `raw/attom_{tx,va}.parquet` are acquired, so more states need a **new ATTOM (Dewey) pull** via
 `torch_work`/the cluster. Prioritize expanding ATTOM coverage.
+
+## ATTOM geo enrichment is missing from the Dewey extract (Anna)
+
+**The problem.** The ATTOM parquet extracts (`raw/attom/attom_{st}.parquet`) have their
+census-geography and coordinate columns **100% empty**. Verified on VA (72.27M rows):
+`CENSUSTRACT`, `CENSUSBLOCKGROUP`, `CENSUSBLOCK` (all `DECIMAL`) and `LATITUDE`/`LONGITUDE`
+(all `DOUBLE`) have **zero** non-null values; `GEOQUALITYCODE` all blank. Only county FIPS,
+ZIP, and street address are populated (address ~87% full, 100% house#+street; ~4.1M unique
+`ATTOMID` parcels/state; `TAXMARKETVALUETOTAL` ~69%).
+
+**This is a pull/product gap, NOT an ATTOM limitation.** ATTOM natively provides census
+geo + lat/long (the columns exist in the 279-col schema). A clean 100%-empty across five
+independent geo fields at once = the geocode/boundary enrichment module was never included
+in the delivered feed. `import_dewey.py` downloads Dewey files wholesale (no column
+filtering), so we received ATTOM's assessor/tax + address table without the geo enrichment.
+
+**Why it matters.** With no census geo on the ATTOM side, `build_attom_value_cells.py` can
+only aggregate to **ZIP/county × year** (median ~720 ATTOM homes per zip×year cell; 29% of
+NFIP properties unmatched on VA). NFIP itself *has* block group (99.7% filled, 5,836 distinct
+on VA), so if ATTOM carried block group we could merge at **block-group × construction-year**
+— far closer to property-level and much less value-skew. The current coarseness is forced by
+this gap, not a design choice.
+
+**TODO (Anna) — pick one:**
+- [ ] **Re-pull the ATTOM geo/boundary table from Dewey** (cleanest). Check the Dewey ATTOM
+      catalog for the geocode / "enhanced GeoID" deliverable and pull it, joining on `ATTOMID`.
+      May be a separate Dewey table or subscription tier. Fold into the `torch_work` ATTOM
+      acquisition so the re-pull also covers the state-coverage expansion above.
+- [ ] **OR geocode locally** (no re-subscription): dedupe ATTOM to unique `ATTOMID`
+      (~4.1M/state), run addresses through the Census Bureau batch geocoder (free → returns
+      tract + block group), attach back by `ATTOMID`. Then merge to NFIP's block group.
+
+_Confirmed empty on VA + TX (Apr 13 pull). The 19-state Jun 27 batch is the same wholesale
+pull / same 279-col schema — spot-check one June state before assuming the whole batch differs._
+
+## Deflate nominal dollars to real (CPI)
+
+All dollar amounts in the data are **nominal** (current-year), and the sources span
+~1996–2023, so any cross-year comparison or pooling needs deflation to constant dollars.
+
+**Built (2026-07-01):** `clean/clean_cpi.do` (raw `data/raw/cpi.csv`) → annual `clean/cpi.dta`,
+rescaled to **base 2023** (`cpi = 1` in 2023; deflate with `real = nominal / cpi`); wired into
+`master.do` (`clean_cpi` switch). `compile.do` deflates `fma_spend` by its window year
+(`year_elev_min`).
+
+- [ ] **Switch to the canonical series (BLS CPI-U, FRED `CPIAUCNS`).** Currently reuses the
+      meatpacking file (OECD `CPALTT01USM661S` — tracks CPI-U closely but not the standard US
+      choice). Swap the raw CSV + the `ren` column name in `clean_cpi.do`. **Do the same in the
+      meatpacking project** so both use CPI-U consistently.
+- [ ] **Guard incomplete years** in `clean_cpi.do`: the series ends mid-2025, so a 2025 annual
+      average is a partial (Jan–Apr) figure — drop years with <12 months.
+- [ ] **Deflate ATTOM property values** in `compile.do` once merged, by their value-cell year
+      (`TAXYEARASSESSED`/`policy_year`) — same pattern as the FMA block.
+- **Robustness option:** a construction-cost/PPI deflator may fit FMA spending better, and
+  PCE / CPI-less-shelter avoids housing circularity for property values. General CPI-U is the
+  documented default.
 
 ## Status / reference (done — for context)
 

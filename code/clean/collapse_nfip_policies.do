@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Vendela Norman
-Date: 2026-06-25
+Date: 2026-07-01
 
 Description: Collapses FEMA NFIP policies data from year level to property level
 
@@ -19,16 +19,21 @@ foreach st of local states {
     local stl = strlower("`st'")
     use "`data'/clean/nfip_policies_state/`stl'.dta", clear
 
+    * Create elevation year variable 
+    bysort property_id (policy_year): egen elevation_year = min(cond(elevated == 1, policy_year, .))
+    // Left-censored: already elevated in the first observed policy-year, so the true
+    // elevation predates NFIP and elevation_year is only an upper bound for these.
+    bysort property_id (policy_year): gen elev_left_censored = elevated[1] == 1
+
     * Collapse to property level 
     // Note: NFIP community number and zipcode can change for the same structure over time 
     // due to administrative reasons. 
-    // Set time-varying attributes to their most-recent value within each property
-    // (elevated is enforced monotonic upstream, so most-recent == ever-elevated)
-    foreach v of varlist elevated ratedfloodzone primary_residence zipcode {
+    // i) Set time-varying attributes to their most-recent value within each property
+    foreach v of varlist elevated ratedfloodzone primary_residence zipcode countycode {
         bysort property_id (policy_year): replace `v' = `v'[_N]
     }
-    // iii) Drop time-varying variables 
-    drop policy_year nfipratedcommunitynumber countycode
+    // ii) Drop time-varying variables 
+    drop policy_year nfipratedcommunitynumber 
     duplicates drop
     isid property_id
 
@@ -42,21 +47,20 @@ foreach st of local states {
 * Section 2: Append and save
 * -----------------------------------------------------------------------------
 
-// TODO: (1) property_id is numbered per-state by egen group() upstream, so it
-//       collides across states after the append (isid only checked per-state).
-//       Regenerate on the combined file or drop it before saving.
-//       (2) The append hardcodes TX as the base; make it order-independent
-//       (clear + append over all states) so it doesn't break if TX is absent.
-
-* Append
-use "`nrip_prop_tx'", clear
+* Append all state files 
+clear
 foreach st of local states {
-    if "`st'" != "TX" {
-        local stl = strlower("`st'")
-        append using "`nrip_prop_`stl''"
-    }
+    local stl = strlower("`st'")
+    append using "`nrip_prop_`stl''"
 }
 
-* Save 
+* Make property_id unique across states
+rename property_id property_id_state
+egen property_id = group(state property_id_state)
+drop property_id_state
+order property_id
+isid property_id
+
+* Save
 sa "`data'/clean/nfip_policies_property.dta", replace
 

@@ -1,11 +1,14 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-06-11
+Date: 2026-07-01
 
 Description: Cleans FEMA Hazard Mitigation Assistance (HMA) projects data, 
     restricting to FMA projects. 
 
 Source: fema.gov/openfema-data-page/hazard-mitigation-assistance-projects-v4
+
+TODO: Figure out if this property-level dataset it worth incorporating: 
+    https://catalog.data.gov/dataset/hazard-mitigation-assistance-mitigated-properties
 ******************************************************************************/
 
 args data
@@ -17,69 +20,89 @@ import delimited using "`data'/raw/HazardMitigationAssistanceProjects.csv", clea
 * Drop irrelevant variables 
 drop disasternumber recipientadmincostamt recipienttribalindicator ///
     subrecipientadmincostamt subrecipienttribalindicator ///
-    initialobligationdate srmcobligatedamt region id datasource 
+    id datasource recipient srmcobligatedamt
+
+* Filter to relevant projects 
+// Note: This keeps some compound projects (e.g., elevations plus buyouts)
+// i) Keep FMA home elevation projects 
+keep if programarea == "FMA" // FMA projects 
+keep if strpos(projecttype, "202.1") > 0 | strpos(projecttype, "202.2") > 0 // Home elevations 
+drop if strpos(projecttype, "106.2") > 0 // some "other non-construction" project 
+drop programarea
+// ii) Approved and completed projects only
+drop if inlist(status, "Not Approved / Denied", "Not Selected", "Withdrawn", ///
+    "Void", "Revision Requested", "Pending")
+drop if mi(status) // drops 1 obs that doesn't look like it recieved funding 
+drop if mi(initialobligationamount) & federalshareobligated == "0.00" & numberoffinalproperties == "0" 
 
 * Destring
 qui: destring *, replace 
 
-* Filter to relevant projects 
-// i) Keep FMA projects 
-keep if programarea == "FMA" // FMA projects 
-keep if strpos(projecttype, "202.1") > 0 | strpos(projecttype, "202.2") > 0 // Home elevations 
-// ii) Drop buyouts 
-// Note: The vast majority of projects are elevation or buyout only. This drops 
-// a small number of projects (~75) that bundle both. 
-drop if strpos(projecttype, "Acquisition") > 0 // drop buyouts
-// iii) Drop remaining compound projects: strip the private-elevation entries, drop if any other activity code is left (keeps 202.1+202.2 combos)
-drop if ustrregexm(ustrregexra(projecttype, "202\.[12]A?:[^;]*", ""), "[0-9]+\.[0-9]+[A-Z]?:")
-// iv) Drop projects where no properties were elevated
-drop if numberofproperties == 0
-drop programarea
+* Create elevation year window
+// i) Convert date strings to numeric calendar years
+foreach var in dateinitiallyapproved dateapproved dateclosed initialobligationdate {
+    gen `var'_year = real(substr(`var', 1, 4))
+    drop `var'
+}
+// ii) Create minimum elevation year variable 
+egen year_elev_min = rowmin(dateinitiallyapproved_year dateapproved_year)
+replace year_elev_min = programfy if missing(year_elev_min)
+replace year_elev_min = initialobligationdate_year if !mi(initialobligationdate_year)
+drop dateinitiallyapproved_year dateapproved_year initialobligationdate_year programfy 
+// iii) Create maximum elevation year variable
+// Note: This is missing for non-closed projects 
+ren dateclosed_year year_elev_max
+// iv) Checks 
+assert !mi(year_elev_min) 
+assert year_elev_min <= year_elev_max
 
-* Convert date strings to numeric calendar years
-gen year_approved = real(substr(dateapproved, 1, 4))
-gen year_closed = real(substr(dateclosed, 1, 4))
-drop dateapproved dateclosed
+* Set 0's to missing for some variables 
+// Note: These variables should not be 0 so set to missing 
+// Note: I think some of these 0s are actually redactions when #properties = 1 
+foreach var in numberofproperties numberoffinalproperties benefitcostratio netvaluebenefits {
+    replace `var' = . if `var' == 0
+}
 
-* Variable cleanup 
-replace benefitcostratio = . if benefitcostratio == 0
+* Create analysis variables 
+// i) FMA spend 
+gen fma_spend = federalshareobligated 
+replace fma_spend = initialobligationamount if (fma_spend == 0 | mi(fma_spend)) ///
+    & !mi(initialobligationamount) & initialobligationamount > 0
+replace fma_spend = projectamount * costsharepercentage if fma_spend == 0 | mi(fma_spend) 
+drop initialobligationamount federalshareobligated projectamount costsharepercentage
+// ii) Number of properties
+gen n_properties = numberoffinalproperties
+replace n_properties = numberofproperties if mi(n_properties) & !mi(numberofproperties)
+drop numberoffinalproperties numberofproperties
 
 * Rename
-rename (programfy benefitcostratio projecttype statenumbercode countycode ///
-    projectamount initialobligationamount federalshareobligated netvaluebenefits ///
-    numberofproperties numberoffinalproperties costsharepercentage ///
-    projectidentifier projectcounties dateinitiallyapproved) ///
-    (year bcr project_type state_code county_code ///
-    project_amount initial_obligation_amount federal_share_obligated net_value_benefits ///
-    number_of_properties number_of_final_properties cost_share_percentage ///
-    project_identifier project_counties date_initially_approved)
+rename (benefitcostratio projecttype statenumbercode countycode ///
+    netvaluebenefits projectidentifier projectcounties) ///
+    (bcr project_type state_code county_code ///
+    net_value_benefits project_identifier project_counties)
 
 * Label variables
-label var year                       "Program fiscal year"
-label var year_approved              "Year project approved"
-label var year_closed                "Year project closed"
-label var date_initially_approved    "Date initially approved"
-label var project_identifier         "Project identifier"
+label var year_elev_min              "Minimum elevation year"
+label var year_elev_max              "Maximum elevation year"
 label var state                      "State name"
 label var state_code                 "State FIPS code"
 label var county                     "County name"
 label var county_code                "County FIPS code (3-digit)"
+label var region                     "FEMA region"
 label var project_counties           "Project counties"
 label var project_type               "Project type"
 label var status                     "Project status"
-label var recipient                  "Recipient"
 label var subrecipient               "Subrecipient"
-label var project_amount             "Total project amount"
-label var initial_obligation_amount  "Initial obligation amount"
-label var federal_share_obligated    "Federal share obligated"
+label var fma_spend                  "Federal dollars obligated"
 label var bcr                        "Benefit-cost ratio"
 label var net_value_benefits         "Net value of benefits"
-label var number_of_properties       "Number of properties"
-label var number_of_final_properties "Final number of properties"
-label var cost_share_percentage      "Cost share percentage"
+label var n_properties               "Number of properties"
+label var project_identifier         "Project identifier"
 
 * Save data
-order project_identifier year* state state_code county county_code status
-sort year state county
+order state state_code county county_code subrecipient year_elev_min ///
+    year_elev_max status n_properties fma_spend bcr net_value_benefits 
+order region project_counties project_type project_identifier, last 
+sort state county year_elev_min
 compress
 save "`data'/clean/fma_elevation_grants.dta", replace
