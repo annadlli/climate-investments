@@ -15,14 +15,15 @@ set more off
 * Paths  
 * -----------------------------------------------------------------------------
 * --- Vendela ---
+/*
 local code "/Users/vendelasolvindnorman/Documents/Econ_PhD/Projects/climate-investments/code"
 local data "/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Data"
 local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
-
+*/
 * --- Anna ---
-/* local code "/Users/anna/Desktop/Research/climate-investments/code"
-local data "/Users/anna/Desktop/Research/climate-investments/data" 
-local python "python3" */ 
+ local code "/Users/anna/Desktop/climate-investments/code"
+local data "/Users/anna/Desktop/climate-investments/data" 
+local python "python3" 
 
 * -----------------------------------------------------------------------------
 * Section 1: Set switches 
@@ -40,14 +41,15 @@ local dewey_run_id ""
 local import_dewey             = 0 // import Attom and Builty data from Dewey
 local import_nfip_policies     = 0 // import NFIP policies data 
 local clean_fma                = 0 // clean FEMA FMA data
-local clean_nfip_policies      = 1 // clean NFIP policies data
+local clean_nfip_policies      = 0 // clean NFIP policies data
 local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
-local collapse_nfip_policies   = 1 // collapse NFIP policy data to property level
+local collapse_nfip_policies   = 0 // collapse NFIP policy data to property level
 
 // ii) Build
 local compile_attom_batches    = 0 // compile raw Dewey ATTOM batch pulls to per-state parquet
-local build_attom_values       = 0
-local compile                  = 0
+local build_attom_values       = 0 //generate attom state summary files
+local build_nfip_attom_fma = 0  // build property-level analysis dataset state level
+local compile_property        = 1 //compile property_level analysis datsets
 
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
@@ -92,6 +94,10 @@ if `build_attom_values' == 1 { //run with TORCH due to size, not locally
         shell `python' "`code'/build/build_attom_value_cells.py" --data "`data'" --state "`state'"
     }
 }
-if `compile' == 1 {
-    do "`code'/build/compile.do" "`data'" "`states'"
+
+if `build_nfip_attom_fma' == 1 {
+    do "`code'/build/build_nfip_attom_fma_analysis.do" "`data'" "`states'"
+}
+if `compile_property' == 1 {
+    do "`code'/build/compile_nfip_attom_fma.do" "`data'" "`states'"
 }
