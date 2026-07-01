@@ -1,7 +1,7 @@
 """
 Build ATTOM valuation cells for NFIP property-level merges.
 
-Authors: Anna Li and Vendela Norman
+Authors: Anna Li
 Date: 2026-06-22
 
 Description:
@@ -12,10 +12,6 @@ Description:
     Policy-year (TAXYEARASSESSED) is used as the time dimension so that NFIP
     policy records can be matched to contemporaneous market values.
     TAXMARKETVALUEYEAR is empty in the data; TAXYEARASSESSED is used instead.
-
-Inputs:  {data}/{state}/attom_{state}.parquet
-Outputs: {data}/build/{state}_attom_value_zip_year.dta
-         {data}/build/{state}_attom_value_county_year.dta
 """
 
 from __future__ import annotations
@@ -27,10 +23,12 @@ import duckdb
 import pandas as pd
 
 
+# Quote string values before interpolating them into DuckDB SQL commands.
 def quote(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
+# Parse the state, data root, and HPC resource settings from the command line.
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--state",   required=True)
@@ -43,6 +41,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    # Resolve state-specific input and output paths.
     args  = parse_args()
     state = args.state.lower()
     data  = Path(args.data)
@@ -50,6 +49,7 @@ def main() -> None:
     out_dir  = data / "build"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Configure DuckDB for large parquet scans on local or HPC storage.
     con = duckdb.connect()
     con.execute(f"SET temp_directory={quote(args.tmp)}")
     con.execute(f"SET memory_limit={quote(args.memory)}")
@@ -57,10 +57,15 @@ def main() -> None:
     con.execute(f"SET threads={args.threads}")
     con.execute("SET preserve_insertion_order=false")
 
+    # Register the parquet as a DuckDB view without loading it all into pandas (saves memory)
     print(f"Reading: {in_path}")
     con.execute(f"CREATE VIEW attom_raw AS SELECT * FROM read_parquet({quote(str(in_path))})")
 
-    # One row per property × assessment year: valid zip, county, and assessed value
+    # Build the analysis-ready property-year table with the following being done:
+    #   - ZIP is standardized to five digits.
+    #   - County FIPS is standardized to five digits.
+    #   - TAXYEARASSESSED is used as the policy-year merge dimension.
+    #   - Only positive assessed market values are kept.
     con.execute("""
         CREATE OR REPLACE TEMP TABLE by_year AS
         SELECT
@@ -77,17 +82,15 @@ def main() -> None:
 
     n = con.execute("SELECT count(*) FROM by_year").fetchone()[0]
     print(f"by_year rows: {n:,}")
-    if n == 0:
-        # Show what the raw columns look like to diagnose the problem
-        print("WARNING: by_year is empty. Checking raw column availability:")
-        print(con.execute("SELECT count(*) FROM attom_raw").fetchone()[0], "raw rows")
-        print(con.execute("SELECT TAXMARKETVALUEYEAR, TAXMARKETVALUETOTAL FROM attom_raw LIMIT 5").df().to_string())
-        raise ValueError("by_year is empty — check TAXMARKETVALUEYEAR / TAXMARKETVALUETOTAL column names and values")
 
+    # Aggregate property-year records into the two ATTOM merge tiers used by NFIP:
+    #   1. ZIP × policy year
+    #   2. County × policy year fallback
     for tier, key, filt in [
         ("zip_year",    "zip_key,    policy_year", "zip_key    IS NOT NULL AND zip_key    != ''"),
         ("county_year", "countycode, policy_year", "countycode IS NOT NULL AND countycode != ''"),
     ]:
+        # Compute cell counts and value moments for the current merge tier.
         df = con.execute(f"""
             SELECT {key},
                 count(DISTINCT ATTOMID)    AS attom_n_properties,
@@ -98,10 +101,11 @@ def main() -> None:
             GROUP BY {key}
         """).df()
 
-        # Stata requires no missing strings
+        # Stata export requires string columns to be nonmissing.
         for col in df.select_dtypes(include="str").columns:
             df[col] = df[col].fillna("").astype(str)
 
+        # Save each ATTOM value-cell file in Stata format for the downstream .do files.
         out = out_dir / f"{state}_attom_value_{tier}.dta"
         df.to_stata(out, write_index=False, version=118)
         print(f"Saved {tier}: {out} ({len(df):,} cells)")

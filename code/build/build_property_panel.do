@@ -3,74 +3,84 @@ Authors: Anna Li
 Date: 2026-06-28
 
 Description:
-    Interactive version of build_nfip_attom_fma_analysis.do.
-    Set locals at the top, then run section by section.
-    Do NOT commit hardcoded paths — this file is for local investigation only.
+ Builds a property-level analysis dataset from NFIP policies, ATTOM value cells, and FMA elevation grants. NFIP policies are the eligible universe;
+    ATTOM values merge by cell (no street address in NFIP); FMA merges at county level.
 ******************************************************************************/
-
-* ============================================================
-* SET THESE BEFORE RUNNING
-* ============================================================
-local data  "/Users/anna/Desktop/climate-investments"
-local stl        "va"
-
-capture mkdir "`data'/build"
+args data state
+local stl = lower("`state'")
 
 * ============================================================
 * 1. NFIP: one row per property
 * ============================================================
+*import data (name kept as it is in Dropbox)
+use "`data'/clean/`stl'.dta", clear
 
-use "`data'/`stl'.dta", clear
-//convert from policy level to property level 
+*drop exact duplicates (on all variables)
 duplicates drop
 
+*convert zipcode and countycode to be numeric
 rename zipcode zip_key
 replace zip_key = "" if inlist(zip_key, ".", "00000")
 replace zip_key = substr(zip_key, 1, 5) if strpos(zip_key, "-")
 destring countycode zip_key, replace
 
+*generate some extra vairables for analysis 
 bysort property_id: egen first_policy_year = min(policy_year)
 bysort property_id: egen last_policy_year  = max(policy_year)
+
+*generated if we were to ever restrict sample to elevated only properties
 bysort property_id: egen ever_elevated     = max(elevated)
 
+*label variables created
 label var first_policy_year "First NFIP appearance"
 label var last_policy_year "Last NFIP appearance"
 
-drop if ever_elevated == 0
+//drop if ever_elevated == 0
 
-//keep year that is closest to when elevation occurred
+*keep year that is closest to when elevation occurred
 bysort property_id (policy_year): keep if elevated == 1 & _n == 1
 replace elevated = ever_elevated
 drop ever_elevated
 
-//note: first 2 digit of countycode represent state. 
+*note: first 2 digit of countycode represent state, generated to merge with hma later
 gen state_fips = substr(string(countycode), 1, 2)
-tab state_fips
+local state_fips = substr(string(countycode[1]), 1, 2)
+
+*rename policy_year to be plain year
+rename policy_year year
+
+*save intermediate file
 tempfile nfipbase matches zip county
 save `nfipbase'
+
 * ============================================================
 * 2. ATTOM: ZIP x Year and county x year as fallback
 * ============================================================
-use "`data'/data/`stl'_attom_value_zip_year.dta", clear
+*done to clean up variable -> will move this upstream in a bit
+use "`data'/build/attom_summary/`stl'_attom_value_zip_year.dta", clear
 destring zip_key, replace
+rename policy_year year
 save `zip'
-use "`data'/data/`stl'_attom_value_county_year.dta", clear
-destring countycode, replace
+use "`data'/build/attom_summary/`stl'_attom_value_county_year.dta", clear
+destring countycode, replace  
+rename policy_year year
 save `county'
 
+* creating intermediary dataset: attom matches
 * Tier 1: ZIP × policy year
 use `nfipbase', clear
-keep property_id countycode zip_key policy_year
-merge m:1 zip_key policy_year using `zip', keep(match) nogen
-
+keep property_id countycode zip_key year
+merge m:1 zip_key year using `zip', keep(match) nogen
+*label where matches came from
 gen attom_tier = "zip_year"
 save `matches', replace
 
 * Tier 2: county × policy year
 use `nfipbase', clear
-keep property_id countycode zip_key policy_year
-merge m:1 countycode policy_year using `county', keep(match) nogen
+keep property_id countycode zip_key year
+merge m:1 countycode year using `county', keep(match) nogen
 
+*label where matches came from
 gen attom_tier = "county_year"
 
 * Only keep county matches for properties with no zip match
@@ -78,44 +88,25 @@ merge m:1 property_id using `matches', keepusing(attom_tier) keep(master) nogen
 append using `matches'
 save `matches', replace
 
+*merge matches with nfipbase
 use `nfipbase', clear
 merge 1:1 property_id using `matches', keep(master match) nogen
 replace attom_tier = "unmatched" if missing(attom_tier)
-tab attom_tier
-local state_fips = substr(string(countycode[1]), 1, 2)
+
+//tab attom_tier *done to get an idea of how many we need the fallback for
 label var attom_tier         "Best ATTOM value-cell match tier"
 
 * ============================================================
 * 3. FMA: county-level merge
 * ============================================================
-preserve
-    use "`data'/fma_elevation_grants.dta", clear
-    keep if state_code == real("`state_fips'")
-    gen countycode = string(state_code, "%02.0f") + string(county_code, "%03.0f")
-	destring countycode, replace
-
-	gen fma_one = 1
-
-    collapse (count) fma_n_grants        = fma_one      ///
-             (sum)   fma_n_properties    = number_of_properties    ///
-                     fma_project_amount  = project_amount          ///
-                     fma_fed_obligated   = federal_share_obligated ///
-             (mean)  fma_avg_bcr         = bcr, by(countycode)
-    gen fma_any               = fma_n_grants > 0
-    gen fma_log_fed_obligated = log(fma_fed_obligated + 1)
-	label var fma_any               "County has any FMA elevation grant"
-	label var fma_n_grants          "FMA elevation grants in county"
-    label var fma_fed_obligated     "FMA federal share obligated in county"
-    tempfile fma
-    save `fma'
-restore
-merge m:1 countycode using `fma', keep(master match) nogen
+*collapse FEMA HMA grant has been moved to collapse_hma_grants.do
+merge m:1 countycode using `"`data'/clean/fma_grants_county.dta"', keep(master match) nogen
 
 * ============================================================
-* 4. Label, order, save
+* 4. Order, save
 * ============================================================
-
-order property_id state countycode zip_key construction_year          ///
+*jorder variables by id and year 
+order property_id state countycode zip_key year construction_year          ///
     first_policy_year last_policy_year elevated primary_residence     ///
     ratedfloodzone attom_tier attom_* fma_any fma_n_grants            ///
     fma_fed_obligated fma_*

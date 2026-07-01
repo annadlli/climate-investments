@@ -41,6 +41,7 @@ local dewey_run_id ""
 local import_dewey             = 0 // import Attom and Builty data from Dewey
 local import_nfip_policies     = 0 // import NFIP policies data 
 local clean_fma                = 0 // clean FEMA FMA data
+local collapse_hma_grants      = 0 // collapse FEMA HMA/FMA grants to county level
 local clean_nfip_policies      = 0 // clean NFIP policies data
 local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
 local collapse_nfip_policies   = 0 // collapse NFIP policy data to property level
@@ -48,8 +49,9 @@ local collapse_nfip_policies   = 0 // collapse NFIP policy data to property leve
 // ii) Build
 local compile_attom_batches    = 0 // compile raw Dewey ATTOM batch pulls to per-state parquet
 local build_attom_values       = 0 //generate attom state summary files
-local build_nfip_attom_fma = 0  // build property-level analysis dataset state level
-local compile_property        = 1 //compile property_level analysis datsets
+local build_nfip_attom_fma     = 0  // build property-level analysis dataset state level
+local compile_property         = 1 // compile property-level analysis datasets
+local compile                  = 0 // compile property-level analysis datasets
 
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
@@ -71,6 +73,9 @@ if `import_nfip_policies' == 1 {
 }
 if `clean_fma' == 1 {
     do "`code'/clean/clean_fma.do" "`data'"
+}
+if `collapse_hma_grants' == 1 {
+    do "`code'/clean/collapse_hma_grants.do" "`data'"
 }
 if `clean_nfip_policies' == 1 {
     do "`code'/clean/clean_nfip_policies.do" "`data'" "`states'"
@@ -96,8 +101,14 @@ if `build_attom_values' == 1 { //run with TORCH due to size, not locally
 }
 
 if `build_nfip_attom_fma' == 1 {
-    do "`code'/build/build_nfip_attom_fma_analysis.do" "`data'" "`states'"
+    foreach state of local states {
+        do "`code'/build/build_property_panel.do" "`data'" "`state'"
+    }
 }
 if `compile_property' == 1 {
     do "`code'/build/compile_nfip_attom_fma.do" "`data'" "`states'"
 }
+if `compile' == 1 {
+    do "`code'/build/compile.do"
+}
+
