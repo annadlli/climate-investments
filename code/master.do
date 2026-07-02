@@ -46,7 +46,6 @@ local import_dewey             = 0 // import Attom and Builty data from Dewey
 local import_nfip_policies     = 0 // import NFIP policies data
 local clean_cpi                = 0 // clean CPI deflator data
 local clean_fma                = 0 // clean FEMA FMA data
-local collapse_hma_grants      = 0 // collapse FEMA HMA/FMA grants to county level
 local clean_nfip_policies      = 0 // clean NFIP policies data
 local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
 local collapse_fma_county      = 1 // collapse FMA grants to county level
@@ -81,9 +80,6 @@ if `clean_cpi' == 1 {
 }
 if `clean_fma' == 1 {
     do "`code'/clean/clean_fma.do" "`data'"
-}
-if `collapse_hma_grants' == 1 {
-    do "`code'/clean/collapse_hma_grants.do" "`data'"
 }
 if `collapse_fma_county' == 1 {
     do "`code'/clean/collapse_fma_county.do" "`data'"
