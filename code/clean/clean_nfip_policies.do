@@ -6,6 +6,8 @@ Description: Cleans the FEMA NFIP redacted policies data, restricting to
     single-family residential policies.
 
 Source: fema.gov/openfema-data-page/fima-nfip-redacted-policies-v2
+
+TODO: Clean censustract countycode censusblockgroupfips
 ******************************************************************************/
 
 args data states
