@@ -1,6 +1,6 @@
 # TODO — climate-investments
 
-_Last updated: 2026-06-19. Open handoff tasks + project state. Your coding agent surfaces the open
+_Last updated: 2026-07-10. Open handoff tasks + project state. Your coding agent surfaces the open
 items when you open the project (see CLAUDE.md / AGENTS.md). Follow `CONVENTIONS.md` as you work._
 
 ## ⭐ THE MAIN THING: the whole pipeline must be reproducible from `master.do`
@@ -30,6 +30,13 @@ documented, behind a `0/1` switch (including whatever comes out of `torch_work/`
 
 ## Pending / reconcile
 
+- [ ] **Trim `import_dewey.py` (Anna).** It's a faithful byte-for-byte downloader — verified it never
+      parses or casts values, so it is **not** the source of the ATTOM ZIP/FIPS leading-zero loss (that
+      defect is already in the Dewey-delivered parquet). But it reads AI-generated: cut the 7-key
+      `file_name_from_row` probe (deweydatapy returns a known schema) and the verbose docstrings/type
+      hints (~30–40 lines). **Keep** the `--manifest` path (it's the real interface — `master.do` /
+      `import.sh` invoke it) and the retry / `.part` / `PAR1`-validation logic (justified for the 44 GB
+      cluster downloads).
 - [x] **`nfip_build.do` archived (2026-06-19).** Its claims→county-year output was consumed only by
       Gen-1 `build/archive/` scripts (not by `build_nfip_hma_panels.do`, which builds from **policies**),
       and it expected claims vars `clean_nfip_claims.do` doesn't produce. Moved to `build/archive/`

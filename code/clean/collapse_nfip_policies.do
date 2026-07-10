@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Vendela Norman
-Date: 2026-07-01
+Date: 2026-07-10
 
 Description: Collapses FEMA NFIP policies data from year level to property level
 
@@ -19,23 +19,32 @@ foreach st of local states {
     local stl = strlower("`st'")
     use "`data'/clean/nfip_policies_state/`stl'.dta", clear
 
-    * Create elevation year variable 
+    * Create additional analysis variables 
+    // i) Got elevated 
+    // Note: These are properties for which we observe a change in elevation status over time
+    bysort property_id (policy_year): gen got_elevated = elevated[_N] == 1 & elevated[1] == 0
+    // ii) Elevation year 
     bysort property_id (policy_year): egen elevation_year = min(cond(elevated == 1, policy_year, .))
-    // Left-censored: already elevated in the first observed policy-year, so the true
-    // elevation predates NFIP and elevation_year is only an upper bound for these.
-    bysort property_id (policy_year): gen elev_left_censored = elevated[1] == 1
+    replace elevation_year = . if got_elevated == 0
+    // iii) Original policy year
+    bysort property_id (policy_year): egen policy_year_init = min(policy_year)
 
     * Collapse to property level 
     // Note: NFIP community number and zipcode can change for the same structure over time 
     // due to administrative reasons. 
     // i) Set time-varying attributes to their most-recent value within each property
-    foreach v of varlist elevated ratedfloodzone primary_residence zipcode countycode {
+    foreach v of varlist *elevated ratedfloodzone primary_residence zipcode countycode {
         bysort property_id (policy_year): replace `v' = `v'[_N]
     }
     // ii) Drop time-varying variables 
     drop policy_year nfipratedcommunitynumber 
     duplicates drop
     isid property_id
+
+    * Label 
+    label var got_elevated              "Property got elevated"
+    label var elevation_year            "Year property was observed elevated"
+    label var policy_year_init          "Year of first NFIP policy"
 
     * Save 
     tempfile nrip_prop_`stl'

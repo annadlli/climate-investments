@@ -13,12 +13,20 @@ Note: This should be a placeholder until the FOIA requests come through and we
 args data
 
 * Import FMA home-elevation grants
-use "`data'/clean/fma_elevation_grants.dta", clear
+use "`data'/clean/fma_elevation_properties.dta", clear
+
+
+
+
+/* 
 
 * Restrict to grains w/ a non-missing county
 // Note: Focus states (TX and VA are never missing the county)
 // Note: Could use the more granular subrecipient info...
 drop if mi(county) | county == "Statewide"
+
+// TEMP 
+drop if year_elev_max < 2009
 
 * Collapse to county level (pooling projects and years)
 // Note: Should probably try to do something more refined than pooling across all years 
