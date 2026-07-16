@@ -1,11 +1,10 @@
 """
-Compile raw ATTOM Dewey batch downloads into per-state parquet files.
-
+Author: Anna Li
+Date: 2024-06-25
+Description: Compile raw ATTOM Dewey batch downloads into per-state parquet files.
 The Dewey pulls can contain multiple states in one endpoint. This script reads
 the same manifest used for import_dewey.py, filters each batch to the states
-listed in its `states` column, and writes one ATTOM parquet per state:
-
-    {data}/{state}/attom_{state}.parquet
+listed in its `states` column, and writes one ATTOM parquet per state.
 """
 
 from __future__ import annotations
@@ -13,10 +12,9 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
-
 import duckdb
 
-
+#state abbreviations to FIPS codes mapping
 STATE_FIPS = {
     "AL": "01",
     "AK": "02",
@@ -47,146 +45,77 @@ STATE_FIPS = {
 
 
 def quote_sql(value: str) -> str:
+    # Escape SQL string literals for DuckDB queries
     return "'" + value.replace("'", "''") + "'"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", required=True, help="Data root, e.g. /scratch/adl9602/tx/data")
-    parser.add_argument("--manifest", required=True, help="CSV manifest used for Dewey import.")
-    parser.add_argument(
-        "--run-id",
-        required=True,
-        help="Dewey run folder name, e.g. run_20260625_115712.",
-    )
-    parser.add_argument("--tmp", default="/scratch/adl9602/tx/tmp", help="DuckDB temp directory.")
-    parser.add_argument("--threads", default=4, type=int)
-    parser.add_argument("--memory", default="64GB")
+    parser.add_argument("--data", required=True)
+    parser.add_argument("--manifest", required=True)
+    parser.add_argument("--run-id", required=True)
     return parser.parse_args()
 
 
 def read_manifest(path: Path) -> list[dict[str, str]]:
+    # Read the manifest file as rows; this contains the list of batches and their associated states
     with path.open(newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    required = {"name", "folder", "states"}
-    if not rows:
-        raise ValueError(f"Manifest {path} has no rows.")
-    missing = required - set(rows[0])
-    if missing:
-        raise ValueError(f"Manifest {path} is missing column(s): {', '.join(sorted(missing))}")
-    return rows
+        return list(csv.DictReader(handle))
 
 
 def parquet_files(batch_dir: Path) -> list[str]:
+    # List all parquet files in a batch folder
     return sorted(str(path) for path in batch_dir.glob("*.snappy.parquet"))
 
 
-def valid_parquet(path: str, con: duckdb.DuckDBPyConnection | None = None) -> bool:
-    try:
-        with open(path, "rb") as handle:
-            header = handle.read(4)
-            handle.seek(-4, 2)
-            footer = handle.read(4)
-        if header != b"PAR1" or footer != b"PAR1":
-            return False
-        if con is not None:
-            con.execute(f"SELECT count(*) FROM read_parquet({quote_sql(path)})").fetchone()
-        return True
-    except (OSError, duckdb.Error):
-        return False
-
-
-def split_valid_files(files: list[str], con: duckdb.DuckDBPyConnection) -> tuple[list[str], list[str]]:
-    good: list[str] = []
-    bad: list[str] = []
-    for path in files:
-        if valid_parquet(path, con):
-            good.append(path)
-        else:
-            bad.append(path)
-    return good, bad
-
-
 def describe_columns(con: duckdb.DuckDBPyConnection, files: list[str]) -> set[str]:
+    # Inspect the parquet and return the available columns
     files_sql = "[" + ", ".join(quote_sql(path) for path in files) + "]"
     desc = con.execute(f"DESCRIBE SELECT * FROM read_parquet({files_sql}, union_by_name=true) LIMIT 1").fetchall()
     return {row[0].upper() for row in desc}
 
 
 def state_filter_sql(state: str, columns: set[str]) -> str:
+    # Build a state filter from any available ATTOM state columns
     fips = STATE_FIPS[state]
     filters: list[str] = []
-    for col in [
-        "SITUSSTATECODE",
-        "SITUSSTATE",
-        "PROPERTYADDRESSSTATE",
-        "PROPERTYADDRESSSTATECODE",
-        "MAILADDRESSSTATE",
-        "MAILADDRESSSTATECODE",
-        "OWNERADDRESSSTATE",
-        "OWNERADDRESSSTATECODE",
-        "STATE",
-    ]:
-        if col in columns:
-            filters.append(f"upper(trim(cast({col} AS varchar))) = {quote_sql(state)}")
+    if "SITUSSTATECODE" in columns: #2 - letter state abbreviation
+        filters.append(f"upper(trim(cast(SITUSSTATECODE AS varchar))) = {quote_sql(state)}")
+
     if "SITUSSTATECOUNTYFIPS" in columns:
+        # Extract the numeric county FIPS, left-pad it to five digits, and
+        # compare its first two digits (the state FIPS) with the target state.
         filters.append(
             "substr(lpad(regexp_extract(trim(cast(SITUSSTATECOUNTYFIPS AS varchar)), "
-            f"'(\\\\d+)', 1), 5, '0'), 1, 2) = {quote_sql(fips)}"
+            f"'(\\d+)', 1), 5, '0'), 1, 2) = {quote_sql(fips)}"
         )
     if filters:
         return "(" + " OR ".join(filters) + ")"
-    raise ValueError("Cannot find a usable state column in ATTOM batch.")
+    # Fallback to an always-false filter if no state column exists
+    return "FALSE"
 
 
 def main() -> None:
+    # Setup inputs and database connection
     args = parse_args()
     data = Path(args.data)
     run_dir = data / "raw" / "dewey" / args.run_id
     manifest = read_manifest(Path(args.manifest))
 
     con = duckdb.connect()
-    con.execute(f"SET temp_directory={quote_sql(args.tmp)}")
-    con.execute(f"SET memory_limit={quote_sql(args.memory)}")
-    con.execute(f"SET threads={args.threads}")
-    con.execute("SET preserve_insertion_order=false")
 
     state_to_files: dict[str, list[str]] = {}
-    corrupt_files: list[str] = []
     for row in manifest:
         states = [state.strip().upper() for state in row["states"].replace(",", " ").split() if state.strip()]
-        if not states:
-            print(f"Skipping {row['name']}: no states listed.")
-            continue
         batch_dir = run_dir / row["folder"]
         files = parquet_files(batch_dir)
-        if not files:
-            print(f"Skipping {row['name']}: no parquet files found in {batch_dir}.")
-            continue
-        files, bad = split_valid_files(files, con)
-        if bad:
-            corrupt_files.extend(bad)
-            print(f"Found {len(bad)} corrupt parquet file(s) in {batch_dir}.")
-        if not files:
-            print(f"Skipping {row['name']}: no valid parquet files found in {batch_dir}.")
-            continue
+
+        # Add batch files to each declared state
         for state in states:
-            if state not in STATE_FIPS:
-                raise ValueError(f"Unknown state abbreviation in manifest: {state}")
-            state_to_files.setdefault(state, []).extend(files)
+            if state in STATE_FIPS:
+                state_to_files.setdefault(state, []).extend(files)
 
-    if corrupt_files:
-        corrupt_list_path = run_dir / "corrupt_parquet_files.txt"
-        corrupt_list_path.write_text("\n".join(sorted(corrupt_files)) + "\n")
-        print("\nCorrupt or incomplete parquet files found:")
-        for path in sorted(corrupt_files):
-            print(f"  {path}")
-        print(f"\nWrote corrupt-file list: {corrupt_list_path}")
-        raise RuntimeError(
-            "Delete the corrupt files listed above (or use corrupt_parquet_files.txt), rerun import_dewey.py with "
-            "--run-id and --skip-exists to redownload only missing files, then rerun this compiler."
-        )
-
+    # Process batch parquet files state-by-state and write output parquet files
     for state, files in sorted(state_to_files.items()):
         files = sorted(set(files))
         columns = describe_columns(con, files)
@@ -200,6 +129,8 @@ def main() -> None:
         print(f"\nWriting {state}: {out_path}")
         print(f"  Source files: {len(files)}")
         print(f"  State filter: {where}")
+
+        # Copy rows for this state into a single parquet file
         con.execute(
             f"""
             COPY (
@@ -211,10 +142,6 @@ def main() -> None:
         )
         n = con.execute(f"SELECT count(*) FROM read_parquet({quote_sql(str(out_path))})").fetchone()[0]
         print(f"  Rows: {n:,}")
-        if n == 0:
-            raise RuntimeError(
-                f"{state} output has zero rows. Check the batch/state mapping or ATTOM state columns."
-            )
 
     print("\nDone.")
 

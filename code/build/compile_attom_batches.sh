@@ -17,9 +17,6 @@ DATA_ROOT="${DATA_ROOT:-${PROJECT_ROOT}/data}"
 PYTHON="${PYTHON:-/scratch/adl9602/venvs/py311/bin/python}"
 MANIFEST="${MANIFEST:-${PROJECT_ROOT}/dewey_manifest_wagner_template.csv}"
 RUN_ID="${1:-${RUN_ID:-}}"
-TMP_DIR="${TMP_DIR:-${PROJECT_ROOT}/tmp}"
-THREADS="${SLURM_CPUS_PER_TASK:-4}"
-MEMORY="${DUCKDB_MEMORY:-80GB}"
 
 if [[ -z "${RUN_ID}" ]]; then
   echo "Usage: sbatch compile_attom_batches.sh run_20260625_115712" >&2
@@ -27,12 +24,9 @@ if [[ -z "${RUN_ID}" ]]; then
   exit 2
 fi
 
-mkdir -p "${PROJECT_ROOT}/logs_out" "${PROJECT_ROOT}/logs_err" "${TMP_DIR}"
+mkdir -p "${PROJECT_ROOT}/logs_out" "${PROJECT_ROOT}/logs_err"
 
 "${PYTHON}" "${PROJECT_ROOT}/compile_attom_batches.py" \
   --data "${DATA_ROOT}" \
   --manifest "${MANIFEST}" \
-  --run-id "${RUN_ID}" \
-  --tmp "${TMP_DIR}" \
-  --threads "${THREADS}" \
-  --memory "${MEMORY}"
+  --run-id "${RUN_ID}"

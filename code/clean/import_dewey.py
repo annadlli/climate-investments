@@ -1,7 +1,7 @@
 """
 Import raw Dewey data extracts.
 
-Authors: Anna Li and Vendela Norman
+Authors: Anna Li
 Date: 2026-06-17
 
 Description:
@@ -20,18 +20,18 @@ from __future__ import annotations
 import argparse
 import csv
 import os
-import time
 from datetime import datetime
-from urllib.parse import unquote, urlparse
 from pathlib import Path
+import deweydatapy as ddp
 
 
+# Built-in endpoints are placeholders for private Dewey URLs. A private manifest supplies the real endpoints without storing licensed URLs in this file.
+
+#optional way of downloading if manifest is not wanted
 DEWEY_ENDPOINTS = {
     # Builty building permit records used to create raw/builty_all.parquet.
     "builty_all": "DEWEY_ENDPOINT_URL_FOR_BUILTY_BUILDING_PERMITS",
-    # ATTOM property/assessor-history records used for state permit matching.
-    "attom_tx": "DEWEY_ENDPOINT_URL_FOR_ATTOM_TEXAS",
-    "attom_va": "DEWEY_ENDPOINT_URL_FOR_ATTOM_VIRGINIA",
+    
 }
 
 
@@ -39,6 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Download licensed Dewey extracts with placeholder endpoints."
     )
+
+    # Data location and Dewey credentials.
     parser.add_argument(
         "--data",
         required=True,
@@ -49,6 +51,8 @@ def parse_args() -> argparse.Namespace:
         default=os.environ.get("DEWEY_API_KEY"),
         help="Dewey API key. Defaults to the DEWEY_API_KEY environment variable.",
     )
+
+    # Dataset selection. --datasets can also restrict a manifest to a subset.
     parser.add_argument(
         "--datasets",
         nargs="+",
@@ -66,6 +70,8 @@ def parse_args() -> argparse.Namespace:
             "name, endpoint. Optional column: folder. Each row downloads to its own folder."
         ),
     )
+
+    # Output controls keep download runs separate and allow a run to be resumed.
     parser.add_argument(
         "--run-id",
         default=None,
@@ -82,175 +88,52 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Skip files that already exist in the destination folder.",
     )
-    parser.add_argument(
-        "--retries",
-        default=10,
-        type=int,
-        help="Number of download attempts per file.",
-    )
-    parser.add_argument(
-        "--retry-sleep",
-        default=60,
-        type=int,
-        help="Seconds to wait after a failed download attempt.",
-    )
     return parser.parse_args()
 
 
 def clean_folder_name(value: str) -> str:
+    # Convert labels such as "ATTOM Texas" into portable folder names.
     return value.strip().strip("/").replace(" ", "_")
 
 
-def endpoint_for(dataset: str) -> str:
-    endpoint = DEWEY_ENDPOINTS[dataset]
-    if endpoint.startswith("DEWEY_ENDPOINT_URL_"):
-        raise ValueError(
-            f"The Dewey endpoint for '{dataset}' is still a placeholder. "
-            "Fill it from a Dewey account before running this download step."
-        )
-    return endpoint
-
-
 def read_manifest(path: Path) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
+    # Read each private endpoint and its output folder from the manifest.
     with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        required = {"name", "endpoint"}
-        missing = required - set(reader.fieldnames or [])
-        if missing:
-            raise ValueError(
-                f"Manifest {path} is missing required column(s): {', '.join(sorted(missing))}"
-            )
-
-        for line_number, row in enumerate(reader, start=2):
-            name = (row.get("name") or "").strip()
-            endpoint = (row.get("endpoint") or "").strip()
-            folder = clean_folder_name(row.get("folder") or name)
-            if not name or not endpoint:
-                raise ValueError(f"Manifest {path} has a blank name or endpoint on line {line_number}.")
-            rows.append({"name": name, "endpoint": endpoint, "folder": folder})
-
-    if not rows:
-        raise ValueError(f"Manifest {path} has no endpoint rows.")
-    return rows
+        return [
+            {
+                "name": row["name"].strip(),
+                "endpoint": row["endpoint"].strip(),
+                "folder": clean_folder_name(row.get("folder") or row["name"]),
+            }
+            for row in csv.DictReader(handle)
+        ]
 
 
 def built_in_rows(datasets: list[str]) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    unknown = sorted(set(datasets) - set(DEWEY_ENDPOINTS))
-    if unknown:
-        raise ValueError(f"Unknown built-in dataset(s): {', '.join(unknown)}")
-    for dataset in datasets:
-        rows.append(
-            {
-                "name": dataset,
-                "endpoint": endpoint_for(dataset),
-                "folder": clean_folder_name(dataset),
-            }
-        )
-    return rows
-
-
-def file_name_from_row(row: dict[str, object]) -> str:
-    for col in ["filename", "file_name", "name", "object_name", "path", "file", "key"]:
-        value = row.get(col)
-        if value is not None and str(value).strip():
-            return Path(str(value).strip()).name
-
-    link = str(row["link"])
-    parsed = urlparse(link)
-    name = Path(unquote(parsed.path)).name
-    if not name:
-        raise ValueError("Could not infer Dewey filename from file-list row.")
-    return name
-
-
-def valid_parquet_file(path: Path) -> bool:
-    try:
-        with path.open("rb") as handle:
-            header = handle.read(4)
-            handle.seek(-4, 2)
-            footer = handle.read(4)
-        return header == b"PAR1" and footer == b"PAR1"
-    except OSError:
-        return False
-
-
-def robust_download_files(files, dest_dir: Path, skip_exists: bool, retries: int, retry_sleep: int) -> None:
-    import requests
-
-    records = files.to_dict("records")
-    total = len(records)
-
-    for i, row in enumerate(records, start=1):
-        if "link" not in row or not str(row["link"]).strip():
-            raise ValueError("Dewey file list is missing required 'link' column.")
-
-        filename = file_name_from_row(row)
-        dest_path = dest_dir / filename
-        part_path = dest_path.with_name(dest_path.name + ".part")
-
-        if skip_exists and dest_path.exists() and dest_path.stat().st_size > 0:
-            print(f"Skipping existing {i}/{total}: {dest_path}", flush=True)
-            continue
-
-        if part_path.exists():
-            part_path.unlink()
-
-        print(f"Downloading {i}/{total}: {dest_path}", flush=True)
-        last_error: Exception | None = None
-        for attempt in range(1, retries + 1):
-            try:
-                with requests.get(str(row["link"]), stream=True, timeout=(30, 300)) as response:
-                    response.raise_for_status()
-                    expected = int(response.headers.get("Content-Length", "0") or 0)
-                    written = 0
-                    with part_path.open("wb") as handle:
-                        for chunk in response.iter_content(chunk_size=1024 * 1024):
-                            if chunk:
-                                handle.write(chunk)
-                                written += len(chunk)
-
-                if expected and written != expected:
-                    raise IOError(f"Incomplete download: wrote {written} bytes, expected {expected}")
-                if dest_path.suffix == ".parquet" and not valid_parquet_file(part_path):
-                    raise IOError("Incomplete parquet download: missing PAR1 header/footer")
-
-                part_path.replace(dest_path)
-                break
-            except (OSError, requests.RequestException) as exc:
-                last_error = exc
-                if part_path.exists():
-                    part_path.unlink()
-                if attempt == retries:
-                    raise RuntimeError(f"Failed downloading {dest_path} after {retries} attempts.") from exc
-                print(
-                    f"  attempt {attempt}/{retries} failed: {exc}. Retrying in {retry_sleep}s...",
-                    flush=True,
-                )
-                time.sleep(retry_sleep)
-
-        if last_error is None:
-            continue
+    # Convert the selected built-in endpoints to the same format as manifest rows.
+    return [
+        {
+            "name": dataset,
+            "endpoint": DEWEY_ENDPOINTS[dataset],
+            "folder": clean_folder_name(dataset),
+        }
+        for dataset in datasets
+    ]
 
 
 def main() -> None:
     args = parse_args()
-    if not args.api_key:
-        raise ValueError("Pass --api-key or set DEWEY_API_KEY.")
-    if args.retries < 1:
-        raise ValueError("--retries must be at least 1.")
 
+    # Use private manifest endpoints when supplied; otherwise use built-ins.
     if args.manifest:
         downloads = read_manifest(Path(args.manifest))
         if args.datasets:
             wanted = set(args.datasets)
             downloads = [row for row in downloads if row["name"] in wanted]
-            if not downloads:
-                raise ValueError("No manifest rows matched --datasets.")
     else:
         downloads = built_in_rows(args.datasets or sorted(DEWEY_ENDPOINTS))
 
+    # Keep each run separate so its batches can be compiled together later.
     data = Path(args.data)
     out_root = Path(args.out_dir) if args.out_dir else data / "raw" / "dewey"
     run_id = args.run_id if args.run_id else datetime.now().strftime("run_%Y%m%d_%H%M%S")
@@ -260,8 +143,8 @@ def main() -> None:
     print(f"Run directory: {run_dir}")
     print(f"Downloads: {', '.join(row['name'] for row in downloads)}")
 
-    import deweydatapy as ddp
-
+    # Dewey returns a table of file links for each endpoint, then downloads
+    # those files into the folder assigned to that manifest row.
     for row in downloads:
         dataset = row["name"]
         dataset_dir = run_dir / row["folder"]
@@ -271,13 +154,7 @@ def main() -> None:
         files = ddp.get_file_list(args.api_key, row["endpoint"], print_info=True)
 
         print(f"Downloading {dataset} files to {dataset_dir}...")
-        robust_download_files(
-            files,
-            dataset_dir,
-            skip_exists=args.skip_exists,
-            retries=args.retries,
-            retry_sleep=args.retry_sleep,
-        )
+        ddp.download_files(files, str(dataset_dir), skip_exists=args.skip_exists)
 
     print("\nAll Dewey downloads complete.")
 
