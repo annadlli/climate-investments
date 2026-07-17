@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Vendela Norman
-Date: 2026-07-10
+Date: 2026-07-16
 
 Description: Collapses FEMA NFIP policies data from year level to property level
 

@@ -36,11 +36,19 @@ foreach st of local states {
         floodproofedindicator nfipcommunityname latitude longitude id lowestadjacentgrade ///
         obstructiontype basementenclosurecrawlspacetype programtypeindicator
 
-    * Rename 
+    * Rename
     ren (propertystate reportedzipcode elevatedbuildingindicator primaryresidenceindicator) ///
         (state zipcode elevated primary_residence)
 
-    * Create additional variables 
+    * Clean zipcode
+    // Note: A few arrive as ZIP+4 (dashed or not), with a trailing dash/space, or
+    // with the leading zero already stripped by FEMA -- all silently fail the zip
+    // merge onto FMA. 
+    replace zipcode = substr(trim(zipcode), 1, 5)
+    replace zipcode = string(real(zipcode), "%05.0f") if !mi(zipcode) & length(zipcode) < 5
+    assert mi(zipcode) | length(zipcode) == 5
+
+    * Create additional variables
     // i) Policy year 
     gen policy_year = real(substr(policyeffectivedate, 1, 4))
     // ii) Construction year 
