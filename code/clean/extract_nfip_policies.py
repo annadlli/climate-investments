@@ -13,14 +13,14 @@ from pathlib import Path
 
 import duckdb
 
-# Wagner's Atlantic + Gulf Coast states (default scope)
-WAGNER_STATES = "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
+# Sample states (default scope)
+SAMPLE_STATES = "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
 DROP = ["reportedCity", "mapPanelNumber", "mapPanelSuffix", "femaRegion"]
 
 def main():
     p = argparse.ArgumentParser(description="Extract per-state NFIP policy records.")
     p.add_argument("--data", required=True, help="Data root with raw/ and clean/ (from master.do).")
-    p.add_argument("--states", default=WAGNER_STATES, help="2-letter abbreviations (default: Wagner's states)")
+    p.add_argument("--states", default=SAMPLE_STATES, help="2-letter abbreviations (default: the sample states)")
     args = p.parse_args()
 
     states = [s.strip().upper() for s in args.states.replace(",", " ").split() if s.strip()]

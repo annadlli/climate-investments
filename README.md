@@ -2,7 +2,11 @@
 
 Empirical analysis of household climate adaptation — primarily **flood-mitigation home
 elevations** — and how FEMA mitigation funding is allocated relative to property wealth and
-flood risk (current focus: **TX and VA**).
+flood risk.
+
+**Scope:** NFIP policies and FEMA FMA run over the **20 sample states** (`local states` in
+`code/master.do`). ATTOM property values are the binding constraint — only **TX and VA** are
+acquired, so anything needing property wealth is still those two.
 
 ## Two roots: code and data
 
@@ -12,7 +16,7 @@ git). They're decoupled — `master.do` sets two paths and everything derives fr
 | | Path (Vendela) |
 |---|---|
 | **code** (this repo) | `…/Documents/Econ_PhD/Projects/climate-investments/code` |
-| **data** (Dropbox)   | `…/Library/CloudStorage/Dropbox/Flooding/Data` |
+| **data** (Dropbox)   | `…/Library/CloudStorage/Dropbox/Flooding/Empirical/Data` |
 
 To run on another machine, edit only the `local code` / `local data` lines at the top of
 `code/master.do` (an `Anna` pair is provided, commented out).
@@ -20,53 +24,84 @@ To run on another machine, edit only the `local code` / `local data` lines at th
 ## Pipeline (`code/master.do`)
 
 ```
-CLEAN  clean/import_nfip_policies.py -> clean/nfip_policies_raw/{st}.csv
-       clean/clean_fma.do            -> fma_elevation_grants.dta
-       clean/clean_nfip_claims.do    -> nfip_claims.dta
-       clean/clean_nfip_policies.do  -> nfip_policies_{tx,va}.dta
-BUILD  build/build_builty_filter.py           -> build/all_builty_elevations.parquet
-       build/build_split_builty_states.py     -> build/{state}_flood_elevation_strict.parquet
-       build/build_attom_onto_permits.py      -> build/{state}_attom_permits_strict.parquet
-       build/build_fma_onto_builty_attom.py   -> build/{state}_attom_fma_permits_strict.parquet
-       build/parquetdta.py                    -> build/{state}_attom_builty.dta
-       build/build_nfip_hma_panels.do   -> analysis/{state}_{property,county}_nfip_hma.dta
-ANALYSIS  analysis/*.do, *.py           run separately
+CLEAN  clean/extract_nfip_policies.py    -> clean/nfip_policies_raw/{st}.csv
+       clean/extract_builty.py           -> clean/builty_raw/{st}.csv
+       clean/crosswalks.do               -> clean/crosswalks/county_xwalk.dta
+       clean/clean_cpi.do                -> clean/cpi.dta
+       clean/clean_fma.do                -> clean/fma_elevation.dta
+       clean/clean_nfip_policies.do      -> clean/nfip_policies_state/{st}.dta
+       clean/clean_builty.do             -> clean/builty_permits_{st}.dta
+       clean/clean_nfip_multiple_loss.do -> clean/nfip_multiple_loss.dta
+BUILD  build/prep_fma.do                 -> clean/fma_{zip,county}.dta
+       build/prep_nfip_policies.do       -> clean/nfip_policies_property.dta
+       build/compile.do                  -> analysis/analysis.dta
+       build/build_attom_value_cells.py  -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
+ANALYSIS  analysis/*.do, *.py            run separately
 ```
 
-`build_nfip_hma_panels.do` is the core builder: it matches NFIP **policies** to permits via tiered
-Wagner-style cells (ZIP×construction-year×policy-year → … → county×year) and merges HMA at
-county×year.
+`compile.do` is the core builder: it starts from the NFIP-insured property universe (~5.2M
+single-family structures), attaches RL/SRL status from the multiple-loss file, and merges FMA funding
+at **both** ZIP and county grain. ATTOM value cells are the remaining piece.
+
+The **Builty permit chain** (`build_builty_filter`, `build_split_builty_states`,
+`build_attom_onto_permits`, `build_fma_onto_builty_attom`, `parquetdta`, `build_nfip_hma_panels`) is
+archived in `build/archive/` and not invoked by `master.do`; elevation status currently comes from the
+NFIP policy file's own flag.
 
 ## Code organization (`code/`)
 
 | Folder | Stage |
 |---|---|
-| `code/clean/` | raw → clean — one `.do` per source (FMA, NFIP claims, NFIP policies) + acquisition scripts (`import_*.py`); dropped sources + `torch_work/` in `clean/archive/` |
-| `code/build/` | clean → build/analysis (active Gen-2 scripts above; `build/archive/` holds superseded code) |
+| `code/clean/` | acquisition (`import_dewey.py`), per-state extraction (`extract_*.py`), and raw → clean (`clean_*.do`, one per source); dropped sources + `torch_work/` in `clean/archive/` |
+| `code/build/` | clean → build/analysis (`prep_*`, `compile.do`, ATTOM cells; `build/archive/` holds superseded code incl. the Builty chain) |
 | `code/descriptives/` | descriptive scripts (run separately) — currently all Gen-1, in `descriptives/archive/` |
 | `code/analysis/` | regressions, identification, etc. (run separately) — currently all Gen-1, in `analysis/archive/` |
 | `output/` | saved `.gph` graphs — repo-root sibling of `code/` (artifacts, not code) |
 
-## Data organization (`Dropbox/Flooding/Data/`)
+## Data organization (`Dropbox/Flooding/Empirical/Data/`)
 
 Four stages, each its own folder (`raw → clean → build → analysis`); see the data folder's own
-`ReadMe.md`. Current key files: `clean/{fma_elevation_grants, nfip_claims, nfip_policies_tx, nfip_policies_va,
-all_builty_elevations}.dta`, `build/{tx,va}_attom_builty.dta`, `analysis/{tx,va}_{property,county}_nfip_hma.dta`.
+`ReadMe.md`. Current key files: `clean/{fma_elevation, fma_zip, fma_county, cpi, nfip_multiple_loss,
+nfip_policies_property}.dta`, `clean/nfip_policies_state/{st}.dta`, `analysis/analysis.dta`.
 
-### Data sources (active)
+### Data sources
+
+Built by `master.do`:
 
 | Source | What | Grain |
 |---|---|---|
+| **FEMA NFIP policies** | flood-insurance policies; the eligible universe + elevation flag + rated flood zone | policy-year → property |
+| **FEMA NFIP multiple-loss** | RL/SRL status (FMA prioritization) | property |
+| **FEMA HMA** | mitigation grants, restricted to FMA single-family elevations; Mitigated Properties (ZIP) + Projects (dollars, BCR, status) | record → ZIP / county |
+| **ATTOM** | property records (value, year built); TX and VA only | property → ZIP/county cells |
+
+Held in the repo but not invoked by `master.do`:
+
+| Source | What | Grain |
+|---|---|---|
+| **FEMA NFIP claims** | flood-insurance claims | claim |
 | **Builty** | building permits; flood-elevation permits via text detection | permit |
-| **ATTOM** | property records (value, year built); matched to permits on address+ZIP (TX, VA) | property |
-| **FEMA HMA** | mitigation grants — **restricted to FMA** | project → county |
-| **FEMA NFIP claims** | flood-insurance claims | claim → county-year |
-| **FEMA NFIP policies** | flood-insurance policies (premiums/coverage) | policy |
 
-**Dropped from the pipeline** (commented out / archived 2026-05-29): NRI, NPR buyouts, ClimateRisk.
+**Removed 2026-05-29:** NRI, NPR buyouts, ClimateRisk. Superseded code is kept rather than deleted —
+see `clean/archive/` and `build/archive/`.
 
-## Status
+## Requirements
 
-See `code/TODO.md`. In short: NFIP policies cleaning (`clean_nfip_policies.do`) is the current
-focus; superseded Gen-1 scripts (incl. `nfip_build.do`) are archived in `build/archive/` and
-`clean/archive/` pending the Gen-2 rebuild of descriptives/analysis.
+| | |
+|---|---|
+| **Stata** | 18 (`master.do` sets `version 18`) |
+| **Python** | 3.11+ with `duckdb`, `pandas`, `pyarrow`, `deweydatapy` |
+| **Access** | FEMA NFIP/HMA files are public; ATTOM and Builty require a Dewey licence |
+
+Stata's GUI `PATH` does not pick up conda — set `local python` in `master.do` to the full interpreter
+path. `build_attom_value_cells.py` is sized for a cluster (Torch/SLURM wrapper: the matching `.sh`).
+
+## Reproducing
+
+1. Edit `local code` and `local data` at the top of `code/master.do` (an `Anna` pair is provided,
+   commented out). Nothing else contains a machine-specific path.
+2. Set `local states` if you want a subset of the 20 sample states.
+3. Set the `0/1` switches in Section 1 for the steps you want, then run `code/master.do` top to bottom.
+   Steps are ordered by dependency; each writes to `data/clean/` or `data/analysis/`.
+
+Analysis and descriptives are **not** invoked by `master.do` — it runs data construction only.

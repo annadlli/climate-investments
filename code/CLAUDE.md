@@ -14,7 +14,11 @@ agents) propose changes to her.
 ## Project
 
 Flood-mitigation home elevations + how FEMA mitigation funding is allocated vs property wealth and
-flood risk (TX & VA). Stata (`.do`) + Python (`.py`, `.ipynb`). Econ PhD work; collaborator: Anna Li.
+flood risk. Stata (`.do`) + Python (`.py`, `.ipynb`). Econ PhD work; collaborator: Anna Li.
+
+**Scope:** NFIP policies and FEMA FMA now run over the 20 sample states (`local states` in
+`master.do`). ATTOM is the binding constraint — only TX & VA are pulled, so anything needing property
+values is still those two.
 
 ## Code and data are decoupled
 
@@ -24,7 +28,7 @@ and everything derives from them:
 | | Path (Vendela) |
 |---|---|
 | code | `…/Documents/Econ_PhD/Projects/climate-investments/code` |
-| data | `…/Library/CloudStorage/Dropbox/Flooding/Data` |
+| data | `…/Library/CloudStorage/Dropbox/Flooding/Empirical/Data` |
 
 Paths follow the **args-pass** convention — see [CONVENTIONS.md](CONVENTIONS.md) §3. (Roots live only
 in `master.do`; no hardcoded user paths in scripts.)
@@ -32,14 +36,26 @@ in `master.do`; no hardcoded user paths in scripts.)
 ## Pipeline (`master.do`, construction only)
 
 ```
-clean/import_nfip_policies.py    -> clean/nfip_policies_raw/{st}.csv   (split national file per state)
-clean/clean_fma.do               -> clean/fma_elevation_grants.dta   (FMA private home-elevation projects)
-clean/clean_nfip_claims.do       -> clean/nfip_claims.dta
-clean/clean_nfip_policies.do     -> clean/nfip_policies_{tx,va}.dta
-build/build_attom_value_cells.py -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
-                                    (.sh = Torch/SLURM wrapper)
-build/compile.do                 -> property-level compile (VA starter; paused, see TODO.md)
+clean/extract_nfip_policies.py    -> clean/nfip_policies_raw/{st}.csv    (split national file per state)
+clean/extract_builty.py           -> clean/builty_raw/{st}.csv           (per-state elevation candidates)
+clean/crosswalks.do               -> clean/crosswalks/county_xwalk.dta   (state·county -> FIPS)
+clean/clean_cpi.do                -> clean/cpi.dta                       (annual, base 2023)
+clean/clean_fma.do                -> clean/fma_elevation.dta             (FMA single-family elevations)
+clean/clean_builty.do             -> clean/builty_permits_{st}.dta       (permit candidates, basic clean)
+clean/clean_nfip_policies.do      -> clean/nfip_policies_state/{st}.dta  (policy-year level, per state)
+clean/clean_nfip_multiple_loss.do -> clean/nfip_multiple_loss.dta
+build/prep_fma.do                 -> clean/fma_zip.dta + clean/fma_county.dta
+build/prep_nfip_policies.do       -> clean/nfip_policies_property.dta    (policy-year -> property)
+build/compile.do                  -> analysis/analysis.dta               (property-level analysis set)
+build/build_attom_value_cells.py  -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
+                                     (.sh = Torch/SLURM wrapper)
 ```
+
+`clean_fma.do` builds the FMA universe from **two** FEMA files: HMA Mitigated Properties (record level,
+carries ZIP) with HMA Projects merged in `m:1` on `projectidentifier` (carries dollars, BCR, status).
+The merge doubles as the funding screen — MitProps logs properties for applications that were never
+funded, so the Projects status filter is what removes them. `prep_fma.do` then pools grants to ZIP
+(primary) and county (fallback); `clean_nfip_claims.do` is parked in `scratch/` pending the ∆D work.
 
 `build_attom_value_cells.py` aggregates raw ATTOM to ZIP/county × construction-year/decade value
 cells — NFIP has no street address, so these merge property values onto the NFIP universe by cell.
@@ -53,9 +69,9 @@ is **deprioritized and moved to `build/archive/`** — a precision option, not t
 ```
 code/
 ├── master.do                 local code/data roots, args-pass + 0/1 switches; clean + build
-├── clean/                    import_*.py (acquisition) + clean_fma / clean_nfip_* (raw -> clean)
-│   └── archive/              dropped sources (clean_nri/npr, nri_prep) + torch_work/ (NYU cluster acquisition)
-├── build/                    active: build_attom_value_cells.py (+.sh), compile.do
+├── clean/                    import_dewey.py (acquisition) + extract_* (national -> per-state) + clean_* (raw -> clean)
+│   └── archive/              dropped sources (clean_nri/npr, nri_prep, clean_fma_projects) + torch_work/ (NYU cluster acquisition)
+├── build/                    prep_fma, prep_nfip_policies, compile + build_attom_value_cells.py (+.sh)
 │   └── archive/              Gen-1 merge/panel scripts + nfip_build.do + deprioritized Builty chain
 ├── descriptives/             descriptive scripts (Gen-1 in descriptives/archive/, await rebuild)
 └── analysis/                 regressions, RD, identification (Gen-1 in analysis/archive/, await rebuild)
@@ -63,7 +79,7 @@ code/
 output/                       saved .gph graphs — repo-root sibling of code/ (artifacts, not code)
 ```
 
-Data (Dropbox `Flooding/Data/`): `raw → clean → build → analysis`, NOT under `code/`.
+Data (Dropbox `Flooding/Empirical/Data/`): `raw → clean → build → analysis`, NOT under `code/`.
 
 ## Active data sources
 
@@ -74,8 +90,10 @@ and `build/archive/`).
 ## Merge logic & eligible universe
 
 Each source contributes distinct columns: **NFIP policies** = elevation status/measures + insurance &
-flood-zone context; **ATTOM** = exact address + property valuation; **FMA** = federal-funding flag
-(county×year); **Builty** = permit-level elevation events (a precision option, currently
+flood-zone context; **ATTOM** = exact address + property valuation; **FMA** = federal funding, pooled
+to **ZIP (primary) and county (fallback)** — its finest geography is ZIP, and grants FEMA never logged
+at property level carry no ZIP at all, so they exist only at county; **Builty** = permit-level
+elevation events (a precision option, currently
 deprioritized). NFIP carries no exact address (lat/long are coarsened to ~1 decimal), so it is joined
 by **fuzzy Wagner cells, not 1:1**. The relevant match is Wagner's **property match**
 (`4_merge_all_houses.do`): cell = `{zip OR community} × construction-year × flood-zone × policy-year`
@@ -90,8 +108,8 @@ linked) only for property-level valuation.
 ## Reference: Wagner replication repo
 
 Wagner (2022) — the source of the tiered cell-match method this project borrows — ships a full Stata/R
-cleaning + analysis replication package in Dropbox `Flooding/Wagner_repository/` (sibling of
-`Flooding/Data/`; `code/A_cleaning/` is the cleaning pipeline, `README.pdf` documents it). **When
+cleaning + analysis replication package in Dropbox `Flooding/Empirical/Wagner_repository/` (sibling of
+`Flooding/Empirical/Data/`; `code/A_cleaning/` is the cleaning pipeline, `README.pdf` documents it). **When
 writing or revising NFIP / flood-risk data-cleaning code (claims, policies, flood zones), consult it
 for inspiration first** — e.g. the Wagner-cell match keys
 (`zipcode · year_built · flood_zone · year · community · org_nb_dt`), the high/low-risk flood-zone

@@ -19,8 +19,9 @@ These cover all code in this repo (Stata `.do`, Python `.py` / `.ipynb`). Refere
 - Spaces break shell calls (`shell python "$build/my script.py"`), `do` statements, and cross-platform paths. A new `.do`/`.py`/`.ipynb` with a space in the name is a convention error — rename it with underscores before committing.
 - Descriptive names, ideally one concern per file (`clean_nfip_claims.do`, not `do2.do`).
 - **Prefix construction files by stage/purpose:**
-  - `clean/` files **must** start with `clean_` (cleans a raw source) or `import_` (data acquisition /
-    raw pull) — e.g. `clean_fma.do`, `import_dewey.py`.
+  - `clean/` files **must** start with `import_` (data acquisition / raw pull — e.g. `import_dewey.py`),
+    `extract_` (national raw file → per-state extracts, no cleaning — e.g. `extract_builty.py`), or
+    `clean_` (cleans a raw source — e.g. `clean_fma.do`).
   - `build/` files **should** start with `build_` where it reads naturally — e.g. `build_nfip_hma_panels.do`.
   - (Loose tier — `descriptives/`, `analysis/`, scratch — no required prefix.)
 
@@ -67,6 +68,7 @@ Notes / Sources: ...
   **label → order → sort → save** (with `compress` just before `save`). Label *all* variables together
   in one block at the end — don't scatter `label var` lines through the script.
 - **Never use `destring ..., replace force`.** Without `force`, `destring` refuses to convert a variable that holds any non-numeric character and leaves it untouched — a useful guardrail. `force` overrides that and recodes every unparseable value to missing (`.`), silently dropping data. If a `destring` won't go through cleanly, diagnose *why* first: strip stray characters (`destring var, replace ignore("$,%")`) or keep the variable as a string — don't `force` past it.
+- **Geographic identifiers stay strings — don't `destring` them at all.** ZIP, state/county FIPS, census tract and block group are labels spelled with digits.
 
 ## 6. Workflow
 

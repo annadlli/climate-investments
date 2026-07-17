@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-07-10
+Date: 2026-07-16
 
 Description: Runs the data-construction pipeline for the climate-investments
     project.
@@ -43,17 +43,19 @@ local python "python3"  */
 
 // i) Clean
 local import_dewey             = 0 // import Attom and Builty data from Dewey
-local import_nfip_policies     = 0 // import NFIP policies data
+local extract_nfip_policies    = 0 // extract per-state NFIP policies
+local extract_builty           = 0 // extract per-state Builty elevation-candidate permits
+local crosswalks               = 0 // create geographic crosswalks
 local clean_cpi                = 0 // clean CPI deflator data
-local clean_fma_projects       = 0 // clean FEMA FMA data (project-level)
-local clean_fma_properties     = 1 // clean FEMA FMA data (property-level)
+local clean_fma                = 0 // clean FEMA FMA data
+local clean_builty             = 1 // clean Builty permits data
 local clean_nfip_policies      = 0 // clean NFIP policies data
 local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
-local collapse_nfip_policies   = 0 // collapse NFIP policy data to property level
 
 // ii) Build
-local merge_fma                = 0 // merge FMA files
-local compile                  = 0 // compile property-level analysis dataset
+local prep_fma                 = 0 // collapse FMA across years to zip/county level
+local prep_nfip_policies       = 0 // collapse NFIP policy data to property level
+local compile                  = 1 // compile property-level analysis dataset
 
 
 local compile_attom_batches    = 0 // compile raw Dewey ATTOM batch pulls to per-state parquet
@@ -65,6 +67,8 @@ local compile_property         = 0 // compile property-level analysis datasets
 * Section 2: Run code    
 * -----------------------------------------------------------------------------
 
+do "`code'/clean/archive/clean_fma_projects.do" "`data'"
+
 // i) Clean
 if `import_dewey' == 1 {
     shell `python' "`code'/clean/import_dewey.py" ///
@@ -73,20 +77,23 @@ if `import_dewey' == 1 {
         --run-id "`dewey_run_id'"
 }
 
-if `import_nfip_policies' == 1 {
-    shell `python' "`code'/clean/import_nfip_policies.py" --data "`data'" --states "`states'"
+if `extract_nfip_policies' == 1 {
+    shell `python' "`code'/clean/extract_nfip_policies.py" --data "`data'" --states "`states'"
+}
+if `extract_builty' == 1 {
+    shell `python' "`code'/clean/extract_builty.py" --data "`data'" --states "`states'"
+}
+if `crosswalks' == 1 {
+    do "`code'/clean/crosswalks.do" "`data'"
 }
 if `clean_cpi' == 1 {
     do "`code'/clean/clean_cpi.do" "`data'"
 }
-if `clean_fma_projects' == 1 {
-    do "`code'/clean/clean_fma_projects.do" "`data'"
+if `clean_fma' == 1 {
+    do "`code'/clean/clean_fma.do" "`data'"
 }
-if `clean_fma_properties' == 1 {
-    do "`code'/clean/clean_fma_properties.do" "`data'"
-}
-if `collapse_fma_county' == 1 {
-    do "`code'/clean/collapse_fma_county.do" "`data'"
+if `clean_builty' == 1 {
+    do "`code'/clean/clean_builty.do" "`data'" "`states'"
 }
 if `clean_nfip_policies' == 1 {
     do "`code'/clean/clean_nfip_policies.do" "`data'" "`states'"
@@ -94,11 +101,14 @@ if `clean_nfip_policies' == 1 {
 if `clean_nfip_multiple_loss' == 1 {
     do "`code'/clean/clean_nfip_multiple_loss.do" "`data'"
 }
-if `collapse_nfip_policies' == 1 {
-    do "`code'/clean/collapse_nfip_policies.do" "`data'" "`states'"
-}
 
 // ii) Build
+if `prep_fma' == 1 {
+    do "`code'/build/prep_fma.do" "`data'"
+}
+if `prep_nfip_policies' == 1 {
+    do "`code'/build/prep_nfip_policies.do" "`data'" "`states'"
+}
 if `compile' == 1 {
     do "`code'/build/compile.do" "`data'" "`states'"
 }
