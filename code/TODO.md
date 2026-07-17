@@ -138,12 +138,25 @@ a field. Best use is probably as a **validation/cross-check** on the NFIP flag f
 elevations line up with NFIP transitions in the same cell and year?), and only then as a replacement
 outcome if NFIP proves unreliable.
 
-**What exists already:** `raw/builty_all.parquet` (24 cols incl. `APN`, `STREET_ADDRESS`, `ZIPCODE`,
-`FIPS_COUNTY`, `DATE_ISSUED`/`DATE_FINALED`, `DESCRIPTION`, `WORK_TYPES`, `PROJECT_VALUE`) and
-`clean/all_builty_elevations.dta`. Archived chain in `build/archive/`: `build_builty_filter.py`,
-`build_split_builty_states.py`, `build_attom_onto_permits.py`, `build_fma_onto_builty_attom.py`,
-`parquetdta.py`, `build_nfip_hma_panels.do`; acquisition in `clean/archive/builty.py`. All Gen-1 — it
-needs reviewing against the current pipeline, not just un-archiving.
+**Built 2026-07-16:** `clean/extract_builty.py` (duckdb: 163.3M-row `raw/builty_all.parquet` →
+per-state candidates in `clean/builty_raw/{st}.csv`; wide text net, no judgement) + `clean/clean_builty.do`
+(**WIP — has a `stop`**; splits Builty's newline-packed `DESCRIPTION` into `permit_subtype` +
+`description`, then restricts to true elevations). Both wired into `master.do`. Funnel on TX+VA:
+163.3M national → 24.6M TX+VA → 290,766 candidates → ~4,600 elevations.
+
+**Superseded — don't revive these:**
+- `build/archive/build_builty_filter.py` → **replaced by `clean/extract_builty.py` + `clean/clean_builty.do`.**
+  It is also misfiled (a raw→clean step living in `build/`).
+- `clean/all_builty_elevations.dta` (6.3GB, 1,784,540 rows) → **replaced by `clean/builty_permits_{st}.dta`.**
+  **Its name is a lie**: it is `build_builty_filter.py`'s *loose* output (candidates incl. false
+  positives — it is full of elevators, and its 24 columns are byte-identical to the raw parquet, so no
+  cleaning ever happened). ~1.78M ≈ the raw text net alone. Delete it once Builty is settled; anyone
+  reading the name will assume it holds finished elevations.
+
+**Still Gen-1, unreviewed, needed only if the chain goes past the cross-check:**
+`build/archive/`: `build_split_builty_states.py`, `build_attom_onto_permits.py`,
+`build_fma_onto_builty_attom.py`, `parquetdta.py`, `build_nfip_hma_panels.do`; acquisition in
+`clean/archive/builty.py` (superseded by `import_dewey.py`, which now carries the Builty endpoint).
 
 - [ ] **Scope the cross-check first** before committing to the full chain: for TX/VA, do Builty
       elevation permits and NFIP `got_elevated` transitions agree in the same cell × year?

@@ -1,6 +1,12 @@
 """
 Build Builty residential flood/home-elevation permit filters.
 
+SUPERSEDED 2026-07-16 -- do not revive. Replaced by clean/extract_builty.py (the
+per-state duckdb extract) + clean/clean_builty.do (the elevation filter, in Stata
+where the judgement calls are legible). Its output, clean/all_builty_elevations.dta,
+is misnamed: it holds the LOOSE candidate set including false positives (it is full
+of elevators), not finished elevations.
+
 Authors: Anna Li and Vendela Norman
 Date: 2026-06-17
 
