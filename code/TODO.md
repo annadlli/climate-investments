@@ -1,6 +1,6 @@
 # TODO — climate-investments
 
-_Last updated: 2026-07-16. Open handoff tasks + project state. Your coding agent surfaces the open
+_Last updated: 2026-07-23. Open handoff tasks + project state. Your coding agent surfaces the open
 items when you open the project (see CLAUDE.md / AGENTS.md). Follow `CONVENTIONS.md` as you work._
 
 ## ⭐ THE MAIN THING: the whole pipeline must be reproducible from `master.do`
@@ -140,14 +140,18 @@ outcome if NFIP proves unreliable.
 
 **Built 2026-07-16:** `clean/extract_builty.py` (duckdb: 163.3M-row `raw/builty_all.parquet` →
 per-state candidates in `clean/builty_raw/{st}.csv`; wide text net, no judgement) + `clean/clean_builty.do`
-(**WIP — has a `stop`**; splits Builty's newline-packed `DESCRIPTION` into `permit_subtype` +
-`description`, then restricts to true elevations). Both wired into `master.do`. Funnel on TX+VA:
-163.3M national → 24.6M TX+VA → 290,766 candidates → ~4,600 elevations.
+(splits Builty's newline-packed `DESCRIPTION` into `permit_subtype` + `description`, screens each
+state to true elevations → `clean/builty_states/builty_elevations_{st}.dta`, then appends + collapses
+to the property level → `clean/builty_elevations.dta`, 21,043 properties). Both wired into `master.do`.
+TX funnel: ~108k residential candidates → 1,913 elevation permits → 1,156 properties.
 
 **Superseded — don't revive these:**
 - `build/archive/build_builty_filter.py` → **replaced by `clean/extract_builty.py` + `clean/clean_builty.do`.**
   It is also misfiled (a raw→clean step living in `build/`).
-- `clean/all_builty_elevations.dta` (6.3GB, 1,784,540 rows) → **replaced by `clean/builty_permits_{st}.dta`.**
+- `build/archive/filter_builty_strict.do` (+ its output `clean/all_builty_elevations_strict.dta`) →
+  **replaced by `clean/clean_builty.do`.** Anna's strict pass on top of the loose output above; on TX
+  it kept only ~760 rows vs clean_builty's ~2k, missing many true elevations for a bit more precision.
+- `clean/all_builty_elevations.dta` (6.3GB, 1,784,540 rows) → **replaced by `clean/builty_states/builty_elevations_{st}.dta` + `clean/builty_elevations.dta`.**
   **Its name is a lie**: it is `build_builty_filter.py`'s *loose* output (candidates incl. false
   positives — it is full of elevators, and its 24 columns are byte-identical to the raw parquet, so no
   cleaning ever happened). ~1.78M ≈ the raw text net alone. Delete it once Builty is settled; anyone
@@ -232,6 +236,25 @@ BCR and status. `prep_fma.do` pools to `fma_zip.dta` (555 zips) and `fma_county.
 - [ ] **Open: 12 of the 53 project-only grants can't be placed** (5 `Statewide`, 7 no county at all).
       41 land at their project-header county — real dollars at lower-quality geography. `project_merge`
       survives into `fma_elevation.dta` so their sensitivity can be tested.
+
+## Self-financing prevalence + post-compile sample restrictions (planned 2026-07-23)
+
+Reframing so the analysis universe stays complete and restrictions are applied legibly downstream:
+- [ ] **Re-do the HMA/FMA cleaning to keep ALL elevations, not just funded ones.** `clean_fma.do`'s
+      Projects status filter currently doubles as a funding screen and *drops* denied/withdrawn/$0
+      applications (see the FMA section above). Keep those records with a `funded`/status flag instead,
+      so we can measure the **prevalence of self-financing** — elevations that happened without a federal
+      grant (denied-but-elevated in FMA, and more broadly Builty elevations with no FMA/HMGP match).
+- [ ] **May need to condition on Build It Back (BIB) funding.** Some elevations were paid by local/state
+      recovery programs (e.g. NYC's post-Sandy "Build It Back"), not FMA/HMGP — so they are *not*
+      self-financed even though they carry no FMA grant. Flag/condition on them before calling an
+      elevation self-financed (ties to `funding_type == 5` in `clean_builty.do`); confirm which programs
+      apply in our sample states.
+- [ ] **New do-file after `compile.do` that applies the sample restrictions (SFHA, FMA).** The SFHA drop
+      was pulled out of `clean_nfip_policies.do` (2026-07-23) and now rides through as the `sfha` flag to
+      keep merges/coverage legible; `compile.do` carries a commented `// drop if sfha == 1` placeholder.
+      A dedicated analysis-facing restriction step should apply `drop if sfha == 1` and the FMA-eligibility
+      restriction, leaving `analysis.dta` as the unrestricted universe.
 
 ## Expand state coverage beyond TX & VA (important)
 

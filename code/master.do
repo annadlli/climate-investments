@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-07-16
+Date: 2026-07-23
 
 Description: Runs the data-construction pipeline for the climate-investments
     project.
@@ -52,13 +52,13 @@ local extract_builty           = 0 // extract per-state Builty elevation-candida
 local crosswalks               = 0 // create geographic crosswalks
 local clean_cpi                = 0 // clean CPI deflator data
 local clean_fma                = 0 // clean FEMA FMA data
-local clean_builty             = 1 // clean Builty permits data
-local clean_nfip_policies      = 0 // clean NFIP policies data
+local clean_builty             = 0 // clean Builty permits data
+local clean_nfip_policies      = 1 // clean NFIP policies data
 local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
 
 // ii) Build
 local prep_fma                 = 0 // collapse FMA across years to zip/county level
-local prep_nfip_policies       = 0 // collapse NFIP policy data to property level
+local prep_nfip_policies       = 1 // collapse NFIP policy data to property level
 local compile                  = 1 // compile property-level analysis dataset
 
 // iii) Build: Builty elevation permits -> ATTOM property values

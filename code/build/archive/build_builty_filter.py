@@ -1,25 +1,26 @@
 """
+SUPERSEDED 2026-07-23 -- do not revive. One of Anna's two Builty elevation filters,
+kept for the record. Replaced by clean/clean_builty.do, which on TX had the best
+precision/recall of the three approaches. This loose filter (candidate terms minus a
+false-positive list, output clean/all_builty_elevations.dta) keeps ~30k TX rows, ~75%
+of them non-elevations (floodplain-development permits, impact fees, new construction),
+and its false-positive list also drops real elevations clean_builty keeps.
+
 Build Builty residential flood/home-elevation permit filters.
 
-SUPERSEDED 2026-07-16 -- do not revive. Replaced by clean/extract_builty.py (the
-per-state duckdb extract) + clean/clean_builty.do (the elevation filter, in Stata
-where the judgement calls are legible). Its output, clean/all_builty_elevations.dta,
-is misnamed: it holds the LOOSE candidate set including false positives (it is full
-of elevators), not finished elevations.
+Authors: Anna Li
+Original Date: 2026-06-17
+Revised Date: 2026-07-17
 
-Authors: Anna Li and Vendela Norman
-Date: 2026-06-17
+Revision: Matched code base style, and directly filter to the strict elevation (removing the broad then strict step)
 
 Description:
     Reads raw Builty permits,
-    keeps residential records whose lowercased DESCRIPTION matches broad
-    flood/elevation candidate terms, and flags false positives with exception
-    overrides for genuine existing-house elevation work. Drops false positives.
-
-Notes / Sources:
-    Input defaults to {data}/raw/builty_all.parquet. Output defaults to
-    {data}/build/all_builty_elevations.parquet and excludes false positives. Use
-    --keep-false-positives to reproduce the loose review output.
+    keeps residential records whose lowercased DESCRIPTION is processed as following: 
+     1.  matches broad flood/elevation candidate terms
+     2. flags false positives 
+     3. flag exceptions to false positives, which are genuine elevation observations
+    Elevation is thus defined as matching broad elevation, eliminating false positives while keeping the exceptions.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from pathlib import Path
 
 import duckdb
 
-
+#broad elevation patterns
 STRICT_PATTERNS = [
     r"elevat",
     r"rais(e|ed|ing)",
@@ -55,7 +56,7 @@ STRICT_PATTERNS = [
     r"storm surge",
     r"out of (the )?floodplain",
 ]
-
+#false positives to eliminate -> this comes from individually inspecting the data in Builty
 FALSE_POSITIVE_PATTERNS = [
     r"sewer|sanitary|septic",
     r"electrical permit",
@@ -119,7 +120,7 @@ FALSE_POSITIVE_PATTERNS = [
     r"(raised|raise|raising).{0,40}curb|curb.{0,40}(raised|raise|raising)",
     r"patio",
 ]
-
+#exceptions from false positives; these are genuine elevation observations
 FALSE_POSITIVE_EXCEPTION_PATTERNS = [
     r"raising for flood requirements",
     r"permit to elevate",
@@ -209,29 +210,24 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--data",
-        required=True,
-        help="Dropbox data root. Input/output paths derive from this root.",
-    )
+        required=True,    )
     parser.add_argument(
         "--input",
-        default=None,
-        help="Optional raw Builty parquet. Defaults to {data}/raw/builty_all.parquet.",
-    )
+        default=None,    )
     parser.add_argument(
         "--out",
-        default=None,
-        help="Output parquet. Defaults to {data}/build/all_builty_elevations.parquet.",
-    )
+        default=None,    )
     parser.add_argument(
         "--diagnostics",
         default=None,
-        help="Optional diagnostics CSV. Defaults next to output parquet.",
+        help="Optional diagnostics CSV. Defaults next to output parquet.", #not necessary for run, but good to check
     )
     parser.add_argument(
         "--keep-false-positives",
         action="store_true",
         help="Write all candidate_flag == 1 rows and keep falsepos_flag for review.",
     )
+    #set up
     parser.add_argument("--tmp", default="/tmp", help="DuckDB temporary directory.")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--memory", default="32GB")
@@ -239,7 +235,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=None, help="Optional row limit for testing.")
     return parser.parse_args()
 
-
+#actually run
 def main() -> None:
     args = parse_args()
     data = Path(args.data)

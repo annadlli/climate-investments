@@ -15,7 +15,7 @@ use "`data'/clean/nfip_policies_property.dta", clear
 * Merge NFIP multiple-loss data 
 // Note: I believe many properties go unmatched (1) because the MLP dataset is a claims 
 // subset of the NFIP policies data. Unmatched (2) due to sample restrictions in NFIP
-// like excluding SFHAs and restricting to single-family homes. 
+// like restricting to single-family homes (the SFHA restriction is now deferred downstream).
 merge m:1 originalconstructiondate censusblockgroupfips originalnbdate ///
     using "`data'/clean/nfip_multiple_loss.dta", keep(1 3) keepusing(fma_rl fma_srl) nogen 
 
@@ -46,13 +46,16 @@ foreach grain in zip county {
     }
 }
 
-* Drop extraneous variables 
+* Drop extraneous variables
 drop originalconstructiondate originalnbdate countycode censustract
+
+* Sample restrictions -- applied downstream in the post-compile restriction do-file (SFHA, FMA)
+// drop if sfha == 1
 
 * Save analysis dataset
 sort state zipcode censusblockgroupfips
 order property_id state zipcode censusblockgroupfips construction_year ///
     policy_year_init elevated got_elevated elevation_year
-order ratedfloodzone, last 
+order ratedfloodzone sfha, last
 compress
 save "`data'/analysis/analysis.dta", replace

@@ -85,12 +85,12 @@ foreach st of local states {
     * -----------------------------------------------------------------------------
 
     * Additional sample restrictions
-    // i) Drop homes in SFHAs 
-    // Note: These are subject to different BCR calculations (flat, pre-calculated benefits)
-    drop if sfha == 1
-    drop sfha
-    // ii) Drop if missing key variables
-    drop if missing(property_id) 
+    // Note: The SFHA (flood-zone) restriction is deferred downstream -- keeping SFHA homes
+    // here leaves the cleaned universe complete, so merges and coverage stay legible. The
+    // sfha flag is carried through for the downstream restriction (SFHAs get flat,
+    // pre-calculated BCRs, so restrict on it wherever that matters).
+    // i) Drop if missing key variables
+    drop if missing(property_id)
 
     * Fix data errors 
     // i) Elevations must be monotonic (once 1, stays 1) within property over time
@@ -103,7 +103,7 @@ foreach st of local states {
     // Note: Temporary. Will expand variable set later on nfip
     keep property_id state countycode nfipratedcommunitynumber zipcode censustract ///
         censusblockgroupfips construction_year policy_year ratedfloodzone elevated ///
-        primary_residence originalnbdate originalconstructiondate
+        primary_residence originalnbdate originalconstructiondate sfha
 
     * Label 
     label var property_id              "Property ID"
@@ -118,6 +118,7 @@ foreach st of local states {
     label var construction_year        "Construction year"
     label var policy_year              "Policy effective year"
     label var ratedfloodzone           "NFIP rated flood zone"
+    label var sfha                     "In SFHA (rated zone A/V)"
     label var elevated                 "Elevated home"
     label var primary_residence        "Primary residence"
 

@@ -33,7 +33,7 @@ foreach st of local states {
     // Note: NFIP community number and zipcode can change for the same structure over time 
     // due to administrative reasons. 
     // i) Set time-varying attributes to their most-recent value within each property
-    foreach v of varlist *elevated ratedfloodzone primary_residence zipcode countycode {
+    foreach v of varlist *elevated ratedfloodzone sfha primary_residence zipcode countycode {
         bysort property_id (policy_year): replace `v' = `v'[_N]
     }
     // ii) Drop time-varying variables 

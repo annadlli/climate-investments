@@ -1,6 +1,6 @@
 """
 Author: Vendela Norman
-Date: 2026-07-16
+Date: 2026-07-23
 
 Description: Splits the raw Builty permits parquet into per-state extracts, keeping
     only permits whose DESCRIPTION plausibly refers to a flood elevation. Writes one
@@ -12,10 +12,6 @@ import argparse
 from pathlib import Path
 
 import duckdb
-
-# Sample states. Builty is only linkable to NFIP via ATTOM's
-# addresses, so in practice the usable scope is wherever ATTOM exists (TX, VA).
-SAMPLE_STATES = "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
 
 # Dropped: no analytic value and 47% of the row. CONTACTS alone is 36% and holds
 # contractor names/phones (PII we have no use for).
@@ -33,8 +29,6 @@ CANDIDATE_PATTERNS = [
     r"finished floor elevation",
     r"freeboard",
     r"floodplain",
-    # Abbreviations need word boundaries -- bare "ffe" matches coffee/offer/buffet and
-    # dragged in ~91k junk rows on TX+VA alone; "icc" another ~2k.
     r"\bbfe\b",
     r"\bffe\b",
     r"\bnfip\b",
@@ -54,7 +48,7 @@ CANDIDATE_PATTERNS = [
 def main():
     p = argparse.ArgumentParser(description="Extract per-state Builty elevation-candidate permits.")
     p.add_argument("--data", required=True, help="Data root with raw/ and clean/ (from master.do).")
-    p.add_argument("--states", default=SAMPLE_STATES, help="2-letter abbreviations (default: the sample states)")
+    p.add_argument("--states", required=True, help="2-letter abbreviations, space- or comma-separated (passed from master.do's `states`).")
     args = p.parse_args()
 
     states = [s.strip().upper() for s in args.states.replace(",", " ").split() if s.strip()]

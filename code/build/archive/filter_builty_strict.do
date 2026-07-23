@@ -1,5 +1,11 @@
 /******************************************************************************
-Authors: Anna Li 
+SUPERSEDED 2026-07-23 -- do not revive. One of Anna's two Builty elevation filters,
+kept for the record. Replaced by clean/clean_builty.do. This is a strict pass on top of
+build_builty_filter.py's loose output, so it inherits that file's misses and trades away
+~40% recall for precision (~760 TX rows vs clean_builty's ~2k, missing many true
+elevations clean_builty keeps).
+
+Authors: Anna Li
 Date: 2026-07-20
 Description: Applies a strict home-elevation filter to the loose all-state
     Builty elevation-candidate file produced by the Python extraction step.
