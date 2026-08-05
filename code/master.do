@@ -23,7 +23,7 @@ local states "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
 local dewey_manifest "`code'/../anna_private/dewey_manifest_wagner_template.csv"
 local dewey_run_id ""
 
-// Builty elevation filter tier carried through the split and ATTOM merge.
+// Builty elevation filter tier carried through the ATTOM merge.
 // superstrict = conjunctive house-elevation filter; loose = keyword candidates.
 local builty_tier "superstrict"
 
@@ -62,9 +62,6 @@ local prep_nfip_policies       = 1 // collapse NFIP policy data to property leve
 local compile                  = 1 // compile property-level analysis dataset
 
 // iii) Build: Builty elevation permits -> ATTOM property values
-local build_builty_filter      = 0 // flag elevation candidates in raw Builty permits
-local filter_builty_strict     = 0 // apply the strict home-elevation filter
-local split_builty_states      = 0 // split strict elevation permits into per-state files
 local geocode_attom            = 0 // extract ATTOM addresses + Census geocode to block groups
 local build_attom_geocoded     = 0 // fan block groups to properties + join onto ATTOM
 local attom_onto_permits       = 0 // match ATTOM property values onto elevation permits
@@ -126,19 +123,6 @@ if `compile' == 1 {
 }
 
 // iii) Build: Builty elevation permits -> ATTOM property values
-if `build_builty_filter' == 1 { // run with TORCH due to raw Builty size
-    shell `python' "`code'/build/build_builty_filter.py" --data "`data'"
-}
-if `filter_builty_strict' == 1 {
-    do "`code'/build/filter_builty_strict.do" "`data'"
-}
-if `split_builty_states' == 1 {
-    shell `python' "`code'/build/build_split_builty_states.py" ///
-        --data "`data'" ///
-        --input "`data'/build/all_builty_elevations_strict.dta" ///
-        --states `states' ///
-        --filename-pattern "{state_lower}_flood_elevation_`builty_tier'.parquet"
-}
 if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resume-safe
     foreach state of local states {
         shell `python' "`code'/build/geocode_attom.py" --data "`data'" --state "`state'"
@@ -158,8 +142,6 @@ if `attom_onto_permits' == 1 { // run with TORCH due to ATTOM size, not locally
             --out "`data'/build/`st'_attom_permits_`builty_tier'.parquet"
     }
 }
-
-
 
 if `compile_attom_batches' == 1 {
     shell `python' "`code'/clean/compile_attom_batches.py" ///
