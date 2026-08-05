@@ -37,8 +37,9 @@ foreach st of local states {
         obstructiontype basementenclosurecrawlspacetype programtypeindicator
 
     * Rename
-    ren (propertystate reportedzipcode elevatedbuildingindicator primaryresidenceindicator) ///
-        (state zipcode elevated primary_residence)
+    ren (propertystate reportedzipcode elevatedbuildingindicator primaryresidenceindicator ///
+        postfirmconstructionindicator) ///
+        (state zipcode elevated primary_residence postfirm)
 
     * Clean zipcode
     // Note: A few arrive as ZIP+4 (dashed or not), with a trailing dash/space, or
@@ -73,7 +74,7 @@ foreach st of local states {
     }
 
     * Destring variables 
-    destring elevated primary_residence, replace
+    destring elevated primary_residence postfirm, replace
     /* ds id state zipcode countycode censustract censusblockgroupfips ///
        nfipratedcommunitynumber nfipcommunitynumbercurrent ///
        ratedfloodzone floodzonecurrent policyeffectivedate ///
@@ -103,7 +104,7 @@ foreach st of local states {
     // Note: Temporary. Will expand variable set later on nfip
     keep property_id state countycode nfipratedcommunitynumber zipcode censustract ///
         censusblockgroupfips construction_year policy_year ratedfloodzone elevated ///
-        primary_residence originalnbdate originalconstructiondate sfha
+        primary_residence originalnbdate originalconstructiondate sfha postfirm
 
     * Label 
     label var property_id              "Property ID"
@@ -119,6 +120,7 @@ foreach st of local states {
     label var policy_year              "Policy effective year"
     label var ratedfloodzone           "NFIP rated flood zone"
     label var sfha                     "In SFHA (rated zone A/V)"
+    label var postfirm                 "Post-FIRM construction"
     label var elevated                 "Elevated home"
     label var primary_residence        "Primary residence"
 

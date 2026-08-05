@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-07-23
+Date: 2026-08-04
 
 Description: Runs the data-construction pipeline for the climate-investments
     project.
@@ -19,13 +19,9 @@ set more off
 local states "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
 
 // Dewey/ATTOM acquisition inputs. The manifest is private because it contains
-// licensed Dewey endpoint URLs. compile_attom_batches requires an existing run id.
+// licensed Dewey endpoint URLs. extract_attom requires an existing run id.
 local dewey_manifest "`code'/../anna_private/dewey_manifest_wagner_template.csv"
 local dewey_run_id ""
-
-// Builty elevation filter tier carried through the ATTOM merge.
-// superstrict = conjunctive house-elevation filter; loose = keyword candidates.
-local builty_tier "superstrict"
 
 * -----------------------------------------------------------------------------
 * Paths 
@@ -49,17 +45,19 @@ local python "python3"  */
 local import_dewey             = 0 // import Attom and Builty data from Dewey
 local extract_nfip_policies    = 0 // extract per-state NFIP policies
 local extract_builty           = 0 // extract per-state Builty elevation-candidate permits
+local extract_attom            = 0 // extract per-state ATTOM property data
 local crosswalks               = 0 // create geographic crosswalks
 local clean_cpi                = 0 // clean CPI deflator data
 local clean_fma                = 0 // clean FEMA FMA data
 local clean_builty             = 0 // clean Builty permits data
-local clean_nfip_policies      = 1 // clean NFIP policies data
+local clean_nfip_policies      = 0 // clean NFIP policies data
 local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
 
 // ii) Build
 local prep_fma                 = 0 // collapse FMA across years to zip/county level
-local prep_nfip_policies       = 1 // collapse NFIP policy data to property level
+local prep_nfip_policies       = 0 // collapse NFIP policy data to property level
 local compile                  = 1 // compile property-level analysis dataset
+local compile2                 = 0 // PRELIMINARY: attach ATTOM values + Builty via Anna's Wagner links
 
 // iii) Build: Builty elevation permits -> ATTOM property values
 local geocode_attom            = 0 // extract ATTOM addresses + Census geocode to block groups
@@ -67,7 +65,6 @@ local build_attom_geocoded     = 0 // fan block groups to properties + join onto
 local attom_onto_permits       = 0 // match ATTOM property values onto elevation permits
 
 
-local compile_attom_batches    = 0 // compile raw Dewey ATTOM batch pulls to per-state parquet
 local build_attom_values       = 0 //generate attom state summary files
 local build_nfip_attom_fma     = 0 // build property-level analysis dataset state level
 local compile_property         = 0 // compile property-level analysis datasets
@@ -75,8 +72,6 @@ local compile_property         = 0 // compile property-level analysis datasets
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
 * -----------------------------------------------------------------------------
-
-do "`code'/clean/archive/clean_fma_projects.do" "`data'"
 
 // i) Clean
 if `import_dewey' == 1 {
@@ -91,6 +86,12 @@ if `extract_nfip_policies' == 1 {
 }
 if `extract_builty' == 1 {
     shell `python' "`code'/clean/extract_builty.py" --data "`data'" --states "`states'"
+}
+if `extract_attom' == 1 {
+    shell `python' "`code'/clean/extract_attom.py" ///
+        --data "`data'" ///
+        --manifest "`dewey_manifest'" ///
+        --run-id "`dewey_run_id'"
 }
 if `crosswalks' == 1 {
     do "`code'/clean/crosswalks.do" "`data'"
@@ -121,8 +122,12 @@ if `prep_nfip_policies' == 1 {
 if `compile' == 1 {
     do "`code'/build/compile.do" "`data'" "`states'"
 }
+if `compile2' == 1 {
+    do "`code'/build/compile2.do" "`data'" "`states'"
+}
 
 // iii) Build: Builty elevation permits -> ATTOM property values
+// VN NOTE: Your build code needs to be cleaned up / consolidated
 if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resume-safe
     foreach state of local states {
         shell `python' "`code'/build/geocode_attom.py" --data "`data'" --state "`state'"
@@ -143,12 +148,6 @@ if `attom_onto_permits' == 1 { // run with TORCH due to ATTOM size, not locally
     }
 }
 
-if `compile_attom_batches' == 1 {
-    shell `python' "`code'/clean/compile_attom_batches.py" ///
-        --data "`data'" ///
-        --manifest "`dewey_manifest'" ///
-        --run-id "`dewey_run_id'"
-}
 if `build_attom_values' == 1 { //run with TORCH due to size, not locally
     foreach state of local states {
         shell `python' "`code'/build/build_attom_value_cells.py" --data "`data'" --state "`state'"

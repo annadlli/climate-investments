@@ -1,14 +1,14 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=compile_attom
+#SBATCH --job-name=extract_attom
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --time=8:00:00
 #SBATCH --mem=96GB
 #SBATCH --account=torch_pr_351_general
-#SBATCH --output=/scratch/adl9602/tx/logs_out/%j_compile_attom.out
-#SBATCH --error=/scratch/adl9602/tx/logs_err/%j_compile_attom.err
+#SBATCH --output=/scratch/adl9602/tx/logs_out/%j_extract_attom.out
+#SBATCH --error=/scratch/adl9602/tx/logs_err/%j_extract_attom.err
 
 set -euo pipefail
 
@@ -19,14 +19,14 @@ MANIFEST="${MANIFEST:-${PROJECT_ROOT}/dewey_manifest_wagner_template.csv}"
 RUN_ID="${1:-${RUN_ID:-}}"
 
 if [[ -z "${RUN_ID}" ]]; then
-  echo "Usage: sbatch compile_attom_batches.sh run_20260625_115712" >&2
-  echo "   or: RUN_ID=run_20260625_115712 sbatch compile_attom_batches.sh" >&2
+  echo "Usage: sbatch extract_attom.sh run_20260625_115712" >&2
+  echo "   or: RUN_ID=run_20260625_115712 sbatch extract_attom.sh" >&2
   exit 2
 fi
 
 mkdir -p "${PROJECT_ROOT}/logs_out" "${PROJECT_ROOT}/logs_err"
 
-"${PYTHON}" "${PROJECT_ROOT}/compile_attom_batches.py" \
+"${PYTHON}" "${PROJECT_ROOT}/extract_attom.py" \
   --data "${DATA_ROOT}" \
   --manifest "${MANIFEST}" \
   --run-id "${RUN_ID}"

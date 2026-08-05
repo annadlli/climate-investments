@@ -48,6 +48,9 @@ foreach grain in zip county {
 
 * Drop extraneous variables
 drop originalconstructiondate originalnbdate countycode censustract
+drop got_elevated elevation_year elevated // not reliably recorded in NFIP data 
+
+* Note: Need to merge in ATTOM and Builty data. And create a new elevation variable (replacing got_elevated)
 
 * Sample restrictions -- applied downstream in the post-compile restriction do-file (SFHA, FMA)
 // drop if sfha == 1
@@ -55,7 +58,7 @@ drop originalconstructiondate originalnbdate countycode censustract
 * Save analysis dataset
 sort state zipcode censusblockgroupfips
 order property_id state zipcode censusblockgroupfips construction_year ///
-    policy_year_init elevated got_elevated elevation_year
+    policy_year_init 
 order ratedfloodzone sfha, last
 compress
 save "`data'/analysis/analysis.dta", replace
