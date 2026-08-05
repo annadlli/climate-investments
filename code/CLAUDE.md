@@ -5,7 +5,7 @@ layout, data sources. (Open tasks → `TODO.md`; rules → `CONVENTIONS.md`; don
 See `../README.md` for the overview.
 
 > **📋 At session start, report the open handoff tasks in [TODO.md](TODO.md) to the user.**
-> (Surface the open items until the `torch_work/` cleanup there is done; then this line can be removed.)
+> (Surface the open items until the `build/` cleanup there is done; then this line can be removed.)
 
 **Rules** — naming, paths, banners, Stata, workflow — live in [CONVENTIONS.md](CONVENTIONS.md); follow
 them. It's **Vendela-owned**: agents on her machine may edit it on her behalf; others (incl. Anna's
@@ -16,9 +16,10 @@ agents) propose changes to her.
 Flood-mitigation home elevations + how FEMA mitigation funding is allocated vs property wealth and
 flood risk. Stata (`.do`) + Python (`.py`, `.ipynb`). Econ PhD work; collaborator: Anna Li.
 
-**Scope:** NFIP policies and FEMA FMA now run over the 20 sample states (`local states` in
-`master.do`). ATTOM is the binding constraint — only TX & VA are pulled, so anything needing property
-values is still those two.
+**Scope:** NFIP policies and FEMA FMA run over the 20 sample states (`local states` in `master.do`).
+ATTOM now covers all 20 too (value cells for 20 states; Census-geocoded parquets for 8; property-Wagner
+links for 18 — ME/MS pending). The binding constraint is the **grain** of the ATTOM/Builty link into the
+analysis set (currently cell-level via `compile2.do`), not state coverage.
 
 ## Code and data are decoupled
 
@@ -38,6 +39,7 @@ in `master.do`; no hardcoded user paths in scripts.)
 ```
 clean/extract_nfip_policies.py    -> clean/nfip_policies_raw/{st}.csv    (split national file per state)
 clean/extract_builty.py           -> clean/builty_raw/{st}.csv           (per-state elevation candidates)
+clean/extract_attom.py            -> {st}/attom_{st}.parquet             (split Dewey ATTOM batches per state)
 clean/crosswalks.do               -> clean/crosswalks/county_xwalk.dta   (state·county -> FIPS)
 clean/clean_cpi.do                -> clean/cpi.dta                       (annual, base 2023)
 clean/clean_fma.do                -> clean/fma_elevation.dta             (FMA single-family elevations)
@@ -108,7 +110,11 @@ dropping the policy-year from that cell deduped to *approximate structures*. (Wa
 policy↔claims match adds `org_nb_dt`/`srl_ind`/`count_buy` — not used here.) Eligible universe =
 **NFIP-insured single-family structures**; NFIP's own elevation flag + rated flood zone mean
 **neither Builty nor NFHL is needed** for the structure-level universe — ATTOM is pulled in (fuzzily
-linked) only for property-level valuation.
+linked) only for property-level valuation. **Caveat: NFIP miscodes elevations.** The flag
+(`elevatedbuildingindicator`, insurer/self-reported) behaves as a stock, not a flow — only 2,998 of
+313,156 flagged-elevated properties (~1%) show an observed transition — so elevation *events* and
+their timing cannot be trusted from NFIP alone; Builty permits are the independent cross-check and
+candidate replacement outcome (see TODO.md).
 
 ## Reference: Wagner replication repo
 
