@@ -92,11 +92,20 @@ if len(permits) == 0:
     print(f"{STATE}: 0 permits, wrote empty output")
     raise SystemExit(0)
 
-# use the latest available date field as the permit date
-permits["permit_date"] = pd.to_datetime(permits["DATE_ISSUED"], errors="coerce")
-for fallback in ["DATE_SUBMITTED", "DATE_FINALED"]:
-    permits["permit_date"] = permits["permit_date"].fillna(pd.to_datetime(permits[fallback], errors="coerce"))
-permits["permit_year"] = permits["permit_date"].dt.year
+# Use the canonical property's earliest permit year. Older permit-level inputs
+# instead carry three raw date fields, which remain supported for reproducibility.
+if "YEAR" in permits.columns:
+    permits["permit_year"] = pd.to_numeric(permits["YEAR"], errors="coerce")
+    permits["permit_date"] = pd.to_datetime(
+        permits["permit_year"].astype("Int64").astype(str) + "-01-01", errors="coerce"
+    )
+else:
+    permits["permit_date"] = pd.to_datetime(permits["DATE_ISSUED"], errors="coerce")
+    for fallback in ["DATE_SUBMITTED", "DATE_FINALED"]:
+        permits["permit_date"] = permits["permit_date"].fillna(
+            pd.to_datetime(permits[fallback], errors="coerce")
+        )
+    permits["permit_year"] = permits["permit_date"].dt.year
 
 # county FIPS (5 digits)
 state_fips = permits["FIPS_STATE"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(2)
@@ -376,6 +385,8 @@ permits.loc[fill_attom_zip, "ZIPCODE_SOURCE"] = "attom"
 # final clean up: convert var to numeric.
 for c in ["TAXASSESSEDVALUETOTAL", "TAXASSESSEDVALUEIMPROVEMENTS", "PREVIOUSASSESSEDVALUE",
           "YEARBUILT", "YEARBUILTEFFECTIVE", "attom_assessment_year", "PROJECT_VALUE"]:
+    if c not in permits.columns:
+        permits[c] = np.nan
     permits[c] = pd.to_numeric(permits[c], errors="coerce")
 #cleaned property value measure: assessed value if possible, then fall back to prior
 permits["pre_flood_assessed_value"] = permits["TAXASSESSEDVALUETOTAL"].fillna(permits["PREVIOUSASSESSEDVALUE"])

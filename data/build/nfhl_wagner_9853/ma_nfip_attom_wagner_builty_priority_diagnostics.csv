@@ -1,0 +1,10 @@
+metric,count,percent
+NFIP policies,611116.0,100.0
+matched,351707.0,57.55
+1_zip_exact_year_risk,286467.0,46.88
+2_community_exact_year_risk,20425.0,3.34
+3_community_5yr_risk_postfirm,35623.0,5.83
+4_community_decade_risk_postfirm,9192.0,1.5
+mean ATTOM value lag,0.1816654203641099,
+median ATTOM value lag,0.0,
+maximum ATTOM value lag,21.0,
