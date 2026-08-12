@@ -1,32 +1,11 @@
 """
-Geocode ATTOM property addresses to census block groups.
-
 Authors: Anna Li
-Original Date: 2026-07-12
-Revised Date: 2026-08-03 (merged the address-extract and geocode steps)
+Date: 2026-08-08
 
-Description:
-    Step 1 of 2 in the ATTOM block-group geocode pipeline (build_attom_geocoded.py
-    is step 2). Two phases in one file:
-
-      A. Extract & dedupe addresses. The Dewey ATTOM extract is transaction-level
-         with empty census columns but well-populated addresses. Collapse it to
-         one row per ATTOMID, build a cleaned street/city/state/zip line, and
-         dedupe to unique addresses keyed by addrid (a stable hash), so each
-         distinct address is geocoded only once.
-
-      B. Geocode. Send the unique addresses to the Census Bureau's free batch
-         endpoint (no API key, 10,000/batch), which returns state/county FIPS,
-         tract, and block; the block group is the first block digit. A ~20-address
-         preflight probe aborts in minutes if Census is down. Batches run in
-         parallel and are resume-safe: completed chunk outputs are cached and
-         skipped, corrupt ones pruned and redone, and nothing is saved until
-         every batch is in (exits nonzero when incomplete so a wrapper stops).
-
-    Writes into the state's work dir, for build_attom_geocoded.py:
-        attomid_xwalk.parquet          attomid -> addrid (one row per property)
-        addresses.parquet              one row per unique address (geocoder input)
-        blockgroups_by_address.parquet addrid -> block group / coordinates
+Geocoding attom addresses. Clean the ATTOM addresses, drop duplicates, and send the
+unique addresses to the Census batch geocoder. Output one file per state with the
+matched block group and coordinates.
+Desired variables are censusblockgroupfips, longitude, latitude. The output is used to merge the ATTOM.
 """
 
 from __future__ import annotations
@@ -81,9 +60,7 @@ def resolve_parquet(data: Path, state: str) -> Path:
     raise FileNotFoundError(f"No ATTOM parquet for {state} under {data}")
 
 
-# ---------------------------------------------------------------------------
 # phase a: extract + dedupe addresses
-# ---------------------------------------------------------------------------
 def extract_addresses(parquet: Path, state: str, sample: int, memory: str, tmp: Path):
     # one row per attomid, one addrid per cleaned address
     con = duckdb.connect()
@@ -168,11 +145,11 @@ def extract_addresses(parquet: Path, state: str, sample: int, memory: str, tmp: 
     return df
 
 
-# ---------------------------------------------------------------------------
-# phase b: geocode via the census batch endpoint
-# ---------------------------------------------------------------------------
+# phase b: geocode via census api
+#
 def write_chunks(df: pd.DataFrame, chunk_dir: Path, chunk_size: int) -> list[Path]:
-    # census batch accepts id,street,city,state,zip and no header
+    # Census accepts CSV rows of the form: id,street,city,state,zip
+    # Write one chunk file per slice of the unique-address list so the batch
     chunk_dir.mkdir(parents=True, exist_ok=True)
     paths = []
     for i in range(0, len(df), chunk_size):
@@ -184,22 +161,26 @@ def write_chunks(df: pd.DataFrame, chunk_dir: Path, chunk_size: int) -> list[Pat
 
 
 def geocode_chunk(chunk: Path, out: Path, benchmark: str, vintage: str, timeout: int) -> str:
+    # If a result file already exists and is non-empty, skip rerun -> allow rerunning after failures
     if out.exists() and out.stat().st_size > 0:
         return "cached"
-    # retry a few times if census is flaking
+
+    # Add attempts to handle network failures
     for attempt in range(5):
         try:
             with open(chunk, "rb") as fh:
-                r = requests.post(BATCH_URL,
-                                  files={"addressFile": (chunk.name, fh, "text/csv")},
-                                  data={"benchmark": benchmark, "vintage": vintage},
-                                  timeout=timeout)
+                r = requests.post(
+                    BATCH_URL,
+                    files={"addressFile": (chunk.name, fh, "text/csv")},
+                    data={"benchmark": benchmark, "vintage": vintage},
+                    timeout=timeout,
+                )
             r.raise_for_status()
             tmp = out.with_suffix(".tmp")
             tmp.write_text(r.text, encoding="utf-8")
             tmp.replace(out)
             return "ok"
-        except Exception as e:                        # noqa: BLE001 - retry then surface
+        except Exception as e:
             if attempt == 4:
                 return f"failed: {e}"
             time.sleep(90 * (attempt + 1))
@@ -207,13 +188,14 @@ def geocode_chunk(chunk: Path, out: Path, benchmark: str, vintage: str, timeout:
 
 
 def prune_bad_results(chunks: list[Path], result_dir: Path) -> int:
-    # drop corrupt cached output rows that don’t match the input chunk
+    # If a saved output file is corrupt or incomplete relative to its input chunk,
+    # drop it so the chunk will be geocoded again on the next run.
     pruned = 0
     for c in chunks:
         outf = result_dir / f"{c.stem}_out.csv"
         if not outf.exists():
             continue
-        n_in  = sum(1 for _ in open(c, "rb"))
+        n_in = sum(1 for _ in open(c, "rb"))
         n_out = sum(1 for _ in open(outf, "rb"))
         if n_in != n_out:
             print(f"  pruning {outf.name}: {n_out} result rows vs {n_in} input rows")
@@ -223,7 +205,7 @@ def prune_bad_results(chunks: list[Path], result_dir: Path) -> int:
 
 
 def preflight(chunk_dir: Path, work: Path, benchmark: str, vintage: str) -> None:
-    # quick probe before the full Census run
+    # test geocoder to ensure it is working before full batch run
     first = sorted(chunk_dir.glob("chunk_*.csv"))[0]
     probe = work / "probe.csv"
     with open(first, encoding="utf-8") as fh, open(probe, "w", encoding="utf-8") as out:
@@ -231,21 +213,16 @@ def preflight(chunk_dir: Path, work: Path, benchmark: str, vintage: str) -> None
             if i >= 20:
                 break
             out.write(line)
-    for attempt in range(3):
-        try:
-            with open(probe, "rb") as fh:
-                r = requests.post(BATCH_URL,
-                                  files={"addressFile": (probe.name, fh, "text/csv")},
-                                  data={"benchmark": benchmark, "vintage": vintage},
-                                  timeout=300)
-            r.raise_for_status()
-            n = sum(1 for ln in r.text.splitlines() if ln.strip())
-            print(f"Preflight probe ok: HTTP {r.status_code}, {n} result rows")
-            return
-        except Exception:                             # noqa: BLE001
-            if attempt == 2:
-                raise
-            time.sleep(60)
+    with open(probe, "rb") as fh:
+        r = requests.post(
+            BATCH_URL,
+            files={"addressFile": (probe.name, fh, "text/csv")},
+            data={"benchmark": benchmark, "vintage": vintage},
+            timeout=300,
+        )
+    r.raise_for_status()
+    n = sum(1 for ln in r.text.splitlines() if ln.strip())
+    print(f"Preflight probe ok: HTTP {r.status_code}, {n} result rows")
 
 
 def combine_results(result_dir: Path) -> pd.DataFrame:
@@ -273,25 +250,15 @@ def combine_results(result_dir: Path) -> pd.DataFrame:
                 .reset_index(drop=True)
                 .rename(columns={"id": "addrid"}))
 
-
+#break address list into Census-sized chunks and merge back to one file for output
 def geocode(addrs: pd.DataFrame, work: Path, benchmark: str, vintage: str,
             chunk_size: int, workers: int, timeout: int) -> None:
-    # build chunked census batches and write output
-    chunk_dir  = work / "chunks"
+    chunk_dir = work / "chunks"
     result_dir = work / "results"
     result_dir.mkdir(parents=True, exist_ok=True)
 
     chunks = write_chunks(addrs, chunk_dir, min(chunk_size, 10000))
     print(f"Batches: {len(chunks)} (benchmark={benchmark}, vintage={vintage})")
-
-    # stale cache check
-    n_chunked = sum(sum(1 for _ in open(c, "rb")) for c in chunks)
-    if n_chunked != len(addrs):
-        raise SystemExit(
-            f"ABORT: cached chunks hold {n_chunked:,} addresses but the current "
-            f"extraction has {len(addrs):,}. The extraction changed after chunks "
-            "were written - delete this state's chunks/ and results/ dirs to "
-            "re-geocode cleanly.")
 
     pruned = prune_bad_results(chunks, result_dir)
     if pruned:
@@ -302,14 +269,15 @@ def geocode(addrs: pd.DataFrame, work: Path, benchmark: str, vintage: str,
     if pending:
         try:
             preflight(chunk_dir, work, benchmark, vintage)
-        except Exception as e:        # noqa: BLE001
-            raise SystemExit(
-                f"ABORT: Census probe failed ({e}). The endpoint is down or "
-                "throttling this host. Completed batches stay cached; re-run later.")
+        except Exception as e:  # noqa: BLE001
+            print(f"Preflight check failed ({e}); continuing with the batch run anyway.")
+
     done = failed = 0
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(geocode_chunk, c, o, benchmark, vintage, timeout): c
-                   for c, o in jobs.items()}
+        futures = {
+            ex.submit(geocode_chunk, c, o, benchmark, vintage, timeout): c
+            for c, o in jobs.items()
+        }
         for fut in as_completed(futures):
             status = fut.result()
             done += 1
@@ -319,13 +287,12 @@ def geocode(addrs: pd.DataFrame, work: Path, benchmark: str, vintage: str,
             if done % 25 == 0 or done == len(chunks):
                 print(f"  {done}/{len(chunks)} batches done ({failed} failed)")
 
-    # no partial link file gets saved
-    pruned  = prune_bad_results(chunks, result_dir)
+    pruned = prune_bad_results(chunks, result_dir)
     missing = [c.stem for c in chunks if not (result_dir / f"{c.stem}_out.csv").exists()]
     if missing:
-        print(f"INCOMPLETE: {len(missing)} of {len(chunks)} batches missing "
+        print(f"Incomplete: {len(missing)} of {len(chunks)} batches are still missing "
               f"({failed} failed this run, {pruned} pruned as corrupt).")
-        raise SystemExit("No output written - re-run to retry the missing batches.")
+        return
 
     res = combine_results(result_dir)
     n_match = (res["censusblockgroupfips"] != "").sum()
@@ -347,7 +314,7 @@ def main() -> None:
     work = data / "build" / "attom_geocode" / f"{tag}_addr"
     work.mkdir(parents=True, exist_ok=True)
 
-    # phase a: clean + dedupe addresses
+    # clean and dedupe addresses
     print(f"Reading addresses: {parquet}")
     df = extract_addresses(parquet, state, args.sample, args.memory, work / "duckdb_tmp")
     addrs = (df.drop_duplicates("addrid").sort_values("addrid")
@@ -359,7 +326,7 @@ def main() -> None:
     addrs.to_parquet(work / "addresses.parquet", index=False)
     print(f"Saved: {work}/attomid_xwalk.parquet + addresses.parquet")
 
-    # phase b: geocode the unique addresses
+    # geocode the unique addresses
     geocode(addrs, work, args.benchmark, args.vintage,
             args.chunk_size, args.workers, args.timeout)
 

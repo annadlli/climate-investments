@@ -1,20 +1,10 @@
 """
-Build ATTOM matches onto Builty elevation permits.
+Authors: Anna Li
+Date: 2026-08-12
 
-Authors: Anna Li and Vendela Norman
-Date: 2026-06-17
-
-Description:
-    Merges ATTOM property data onto the state-level Builty elevation permit
-    files produced by build_split_builty_states.py, using cleaned address, ZIP,
-    and county fallback keys.
-
-Notes / Sources:
-    Permit input defaults to
-    {data}/build/{state}_flood_elevation_strict.parquet, produced by
-    build_split_builty_states.py. ATTOM input defaults to
-    {data}/raw/attom_{state}.parquet. Output defaults to
-    {data}/build/{state}_attom_permits_strict.parquet.
+Merging Builty permits with Attom values.
+For each state, read the Builty, clean the addresses, match to ATTOM.
+For each permit, keep the closest prior ATTOM value for that specific address.
 """
 
 from __future__ import annotations
@@ -27,43 +17,50 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+
 def quote_sql(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+# args and paths
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--state", required=True, help="2-letter state abbreviation, e.g. TX")
-    parser.add_argument(
-        "--data",
-        required=True,
-        help="Dropbox data root. Input/output paths derive from this root.",
-    )
-    parser.add_argument("--tmp", default="/tmp", help="DuckDB temporary directory.")
+    parser.add_argument("--state", required=True)
+    parser.add_argument("--data", required=True)
+    parser.add_argument("--permits", default=None)
+    parser.add_argument("--attom", default=None)
+    parser.add_argument("--out", default=None)
+    parser.add_argument("--tmp", default="/tmp")
     parser.add_argument("--threads", default=4, type=int)
     parser.add_argument("--memory", default="32GB")
-    parser.add_argument("--max-temp", default="200GB", help="DuckDB max temp spill size.")
-    parser.add_argument("--diagnostics", default=None, help="Optional CSV path for match diagnostics.")
+    parser.add_argument("--max-temp", default="200GB")
+    parser.add_argument("--diagnostics", default=None)
     return parser.parse_args()
 
 
+# Builty input is the statewide file of elevations
 args = parse_args()
-
 STATE = args.state.upper()
 state_lower = STATE.lower()
 data = Path(args.data)
-permits_path = data / "build" / f"{state_lower}_flood_elevation_strict.parquet"
-attom_input = str(data / "raw" / f"attom_{state_lower}.parquet")
-out_path = data / "build" / f"{state_lower}_attom_permits_strict.parquet"
+permits_path = Path(args.permits) if args.permits else data / "builty_elevations.dta"
+attom_input = args.attom if args.attom else str(data / "raw" / "attom" / f"attom_{state_lower}.parquet")
+out_path = Path(args.out) if args.out else data / "build" / f"{state_lower}_attom_permits.parquet"
 
-print(f"State:   {STATE}")
-print(f"Builty input: {permits_path}")
-print(f"ATTOM:   {attom_input}")
-print(f"Output:  {out_path}")
+# This is the geocoded attom file -w ith censusblockgroupfips in it.
+ADDR_COL, ZIP_COL, COUNTY_COL, BG_COL = (
+    "property_address_full", "zip", "countycode", "censusblockgroupfips"
+)
+if Path(attom_input).suffix.lower() == ".dta":
+    attom_frame = pd.read_stata(attom_input, convert_categoricals=False)
+    attom_frame.columns = [column.lower() for column in attom_frame.columns]
+    ZIP_COL = "zip_key" if "zip_key" in attom_frame.columns else ZIP_COL
+    COUNTY_COL = "county_key" if "county_key" in attom_frame.columns else COUNTY_COL
+    BG_COL = "bg_key" if "bg_key" in attom_frame.columns else BG_COL
+else:
+    attom_frame = None
 
-# ---------------------------------------------------------------------------
-# DuckDB setup
-# ---------------------------------------------------------------------------
+# duckdb setup
 con = duckdb.connect()
 con.execute(f"SET temp_directory={quote_sql(args.tmp)}")
 con.execute(f"SET memory_limit={quote_sql(args.memory)}")
@@ -71,99 +68,120 @@ con.execute(f"SET max_temp_directory_size={quote_sql(args.max_temp)}")
 con.execute(f"SET threads={args.threads}")
 con.execute("SET preserve_insertion_order=false")
 
-# ---------------------------------------------------------------------------
-# 1. Load permits
-# ---------------------------------------------------------------------------
-print("\nLoading permits...")
-permits = con.execute(f"SELECT * FROM read_parquet({quote_sql(str(permits_path))})").df()
-print(f"  Loaded: {len(permits):,} permits")
+# load builty elevation permits and make merge keys
+# read the permit file
+if permits_path.suffix.lower() == ".dta":
+    permits = pd.read_stata(permits_path, convert_categoricals=False)
+elif permits_path.suffix.lower() in {".parquet", ".pq"}:
+    permits = con.execute(
+        f"SELECT * FROM read_parquet({quote_sql(str(permits_path))})"
+    ).df()
+else:
+    raise ValueError(
+        f"Unsupported Builty input {permits_path}; expected .dta or .parquet"
+    )
+permits.columns = [c.upper() for c in permits.columns]
+if "STATE" not in permits.columns:
+    raise KeyError(f"Builty input {permits_path} has no STATE column")
+permits = permits[permits["STATE"].fillna("").str.upper().eq(STATE)].copy()
 
+# If a state happens to have no permits, write an empty file and exit cleanly.
+# ex: MD and MS
+if len(permits) == 0:
+    permits.to_parquet(out_path, index=False)
+    print(f"{STATE}: 0 permits, wrote empty output")
+    raise SystemExit(0)
+
+# use the latest available date field as the permit date
 permits["permit_date"] = pd.to_datetime(permits["DATE_ISSUED"], errors="coerce")
+for fallback in ["DATE_SUBMITTED", "DATE_FINALED"]:
+    permits["permit_date"] = permits["permit_date"].fillna(pd.to_datetime(permits[fallback], errors="coerce"))
 permits["permit_year"] = permits["permit_date"].dt.year
 
+# county FIPS (5 digits)
 state_fips = permits["FIPS_STATE"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(2)
 county_fips = permits["FIPS_COUNTY"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(3)
 permits["county_fips"] = state_fips + county_fips
-state_fips_prefix = state_fips.dropna().iloc[0]
+state_fips_prefix = state_fips.iloc[0]
 
-# ---------------------------------------------------------------------------
-# 2. Detect ATTOM address columns and build address-clean SQL
-#    Mirrors merge_loop.py address normalisation exactly.
-# ---------------------------------------------------------------------------
-print("\nDetecting ATTOM columns...")
-attom_relation = quote_sql(attom_input)
-attom_cols = set(
-    r[0] for r in con.execute(
-        f"DESCRIBE SELECT * FROM read_parquet({attom_relation}) LIMIT 1"
-    ).fetchall()
-)
+# address cleaning for ATTOM side
+# ATTOM columns used in the match
+raw_attom_schema = False
+if attom_frame is None:
+    parquet_columns = {
+        row[0] for row in con.execute(
+            f"DESCRIBE SELECT * FROM read_parquet({quote_sql(attom_input)})"
+        ).fetchall()
+    }
+    if "PROPERTYADDRESSFULL" in parquet_columns:
+        raw_attom_schema = True
+        ADDR_COL = "PROPERTYADDRESSFULL"
+        ZIP_COL = "PROPERTYADDRESSZIP"
+        COUNTY_COL = "SITUSSTATECOUNTYFIPS"
+        BG_COL = None
 
-if "SITUSADDRESS" in attom_cols and "SITUSZIP" in attom_cols:
-    addr_col, zip_col = "SITUSADDRESS", "SITUSZIP"
-elif "PROPERTYADDRESSFULL" in attom_cols and "PROPERTYADDRESSZIP" in attom_cols:
-    addr_col, zip_col = "PROPERTYADDRESSFULL", "PROPERTYADDRESSZIP"
-else:
-    raise KeyError(
-        "Cannot find ATTOM address columns. "
-        "Expected SITUSADDRESS/SITUSZIP or PROPERTYADDRESSFULL/PROPERTYADDRESSZIP."
-    )
-print(f"  Address columns: {addr_col}, {zip_col}")
-
-county_col = None
-for candidate in ["SITUSSTATECOUNTYFIPS", "PROPERTYCOUNTYFIPS", "COUNTYFIPS", "FIPS"]:
-    if candidate in attom_cols:
-        county_col = candidate
-        break
-if county_col:
-    print(f"  County column:  {county_col}")
-else:
-    print("  County column:  not found; county fallback disabled")
-
-# Keep only the ATTOM columns we need
 ATTOM_KEEP = [
-    addr_col, zip_col,
-    "ATTOMID",
-    "TAXASSESSEDVALUETOTAL",
-    "TAXASSESSEDVALUEIMPROVEMENTS", "PREVIOUSASSESSEDVALUE", "TAXYEARASSESSED",
-    "YEARBUILT", "YEARBUILTEFFECTIVE",
+    (ADDR_COL, ADDR_COL),
+    (ZIP_COL, "attom_zipcode"),
+    (COUNTY_COL, COUNTY_COL),
+    ("ATTOMID" if raw_attom_schema else "attomid", "ATTOMID"),
+    ("TAXASSESSEDVALUETOTAL" if raw_attom_schema else "assessed_value_total", "TAXASSESSEDVALUETOTAL"),
+    ("TAXASSESSEDVALUEIMPROVEMENTS" if raw_attom_schema else "assessed_value_improvements", "TAXASSESSEDVALUEIMPROVEMENTS"),
+    ("PREVIOUSASSESSEDVALUE" if raw_attom_schema else "previous_assessed_value", "PREVIOUSASSESSEDVALUE"),
+    ("TAXYEARASSESSED" if raw_attom_schema else "year", "TAXYEARASSESSED"),
+    ("YEARBUILT" if raw_attom_schema else "construction_year", "YEARBUILT"),
+    ("YEARBUILTEFFECTIVE" if raw_attom_schema else "construction_year", "YEARBUILTEFFECTIVE"),
+    (BG_COL, "censusblockgroupfips"),
+    (None if raw_attom_schema else "geocode_match", "geocode_match"),
+    ("LONGITUDE" if raw_attom_schema else "longitude", "longitude"),
+    ("LATITUDE" if raw_attom_schema else "latitude", "latitude"),
 ]
-if county_col:
-    ATTOM_KEEP.append(county_col)
-ATTOM_KEEP = [c for c in ATTOM_KEEP if c in attom_cols]
-keep_sql = ", ".join(f'"{c}"' for c in ATTOM_KEEP)
-
-STREET_SUFFIX_RE = (
-    r"\s+(st|ave|blvd|dr|ct|pl|ln|rd|cir|hwy|pkwy|ter|trl|way|"
-    r"sq|loop|cv|xing|xrd|aly|walk|path|pike|rte|route)$"
+keep_sql = ", ".join(
+    f'"{source}" AS "{target}"' if source is not None else f"'' AS \"{target}\""
+    for source, target in ATTOM_KEEP
 )
 
-# DuckDB address cleaning SQL — same abbreviation table as merge_loop.py, plus
-# common USPS-style variants that matter for address matching.
+STREET_SUFFIX_RE = (r"\s+(st|ave|blvd|dr|ct|pl|ln|rd|cir|hwy|pkwy|ter|trl|way|"
+                    r"sq|loop|cv|xing|xrd|aly|walk|path|pike|rte|route)$")
+
+
+# lowercase, strip punctuation, and normalize USPS abbreviations
 def addr_clean_sql(col: str) -> str:
     expr = f'replace(replace(lower(trim("{col}")), \',\', \'\'), \'.\', \'\')'
     expr = f"regexp_replace({expr}, '\\s+', ' ', 'g')"
     expr = f"regexp_replace({expr}, '\\s+city of.*$', '', 'g')"
-    sql_abbrevs = [
-        ("street", "st"), ("avenue", "ave"), ("boulevard", "blvd"),
-        ("drive", "dr"), ("court", "ct"), ("place", "pl"), ("lane", "ln"),
-        ("road", "rd"), ("circle", "cir"), ("highway", "hwy"),
-        ("parkway", "pkwy"), ("terrace", "ter"), ("trail", "trl"),
-        ("square", "sq"), ("cove", "cv"), ("crossing", "xing"),
-        ("alley", "aly"), ("north", "n"), ("south", "s"), ("east", "e"),
-        ("west", "w"), ("apartment", "apt"), ("suite", "ste"),
-        ("unit", "apt"),
-    ]
-    for old, new in sql_abbrevs:
+    for old, new in [("street", "st"), ("avenue", "ave"), ("boulevard", "blvd"), ("drive", "dr"),
+                     ("court", "ct"), ("place", "pl"), ("lane", "ln"), ("road", "rd"), ("circle", "cir"),
+                     ("highway", "hwy"), ("parkway", "pkwy"), ("terrace", "ter"), ("trail", "trl"),
+                     ("square", "sq"), ("cove", "cv"), ("crossing", "xing"), ("alley", "aly"),
+                     ("point", "pt"),
+                     ("north", "n"), ("south", "s"), ("east", "e"), ("west", "w"),
+                     ("apartment", "apt"), ("suite", "ste"), ("unit", "apt")]:
         expr = f"regexp_replace({expr}, '\\b{old}\\b', '{new}', 'g')"
     expr = f"replace({expr}, '#', 'apt ')"
+    for joined, spaced in [("groveway", "grove way"), ("soundview", "sound view"),
+                           ("harborview", "harbor view"), ("farmcreek", "farm creek"),
+                           ("newmarker", "new marker"), ("highridge", "high ridge")]:
+        expr = f"regexp_replace({expr}, '\\b{joined}\\b', '{spaced}', 'g')"
     return f"trim(regexp_replace({expr}, '\\s+', ' ', 'g'))"
 
-def addr_nosuffix_sql(clean_expr: str) -> str:
-    return f"regexp_replace({clean_expr}, '{STREET_SUFFIX_RE}', '')"
 
+# drop the street-type suffix for the no-suffix fallback tier
+def addr_nosuffix_sql(clean_expr: str) -> str:
+    no_unit = f"regexp_replace({clean_expr}, '\\s+(apt|unit|ste)\\s+.*$', '')"
+    return f"regexp_replace({no_unit}, '{STREET_SUFFIX_RE}', '')"
+
+
+def addr_compact_sql(clean_expr: str) -> str:
+    return f"replace({addr_nosuffix_sql(clean_expr)}, ' ', '')"
+
+
+# keep just the leading 5-digit ZIP
 def zip_clean_sql(col: str) -> str:
     return f"regexp_extract(replace(upper(trim(\"{col}\")), ' ', ''), '^(\\d{{5}})', 1)"
 
+
+# normalize ATTOM county code to 5-digit state + county FIPS
 def county_clean_sql(col: str) -> str:
     digits = f"regexp_extract(trim(\"{col}\"), '(\\d+)', 1)"
     return f"""
@@ -176,288 +194,229 @@ def county_clean_sql(col: str) -> str:
         END
     """
 
-# ---------------------------------------------------------------------------
-# 3. Build Builty merge keys in pandas (same logic as SQL above)
-# ---------------------------------------------------------------------------
-ABBREVS = [
-    (r'\bstreet\b', 'st'),   (r'\bavenue\b', 'ave'),   (r'\bboulevard\b', 'blvd'),
-    (r'\bdrive\b',  'dr'),   (r'\bcourt\b',  'ct'),    (r'\bplace\b',  'pl'),
-    (r'\blane\b',   'ln'),   (r'\broad\b',   'rd'),    (r'\bcircle\b', 'cir'),
-    (r'\bhighway\b','hwy'),  (r'\bparkway\b','pkwy'),  (r'\bterrace\b','ter'),
-    (r'\btrail\b',  'trl'),  (r'\bnorth\b',  'n'),     (r'\bsouth\b',  's'),
-    (r'\beast\b',   'e'),    (r'\bwest\b',   'w'),     (r'\bapartment\b','apt'),
-    (r'\bsuite\b',  'ste'),  (r'\bunit\b',   'apt'),   (r'\bsquare\b', 'sq'),
-    (r'\bcove\b',   'cv'),   (r'\bcrossing\b','xing'), (r'\balley\b',  'aly'),
-    (r'#',          'apt '),
-]
-STREET_SUFFIXES = (
-    "st", "ave", "blvd", "dr", "ct", "pl", "ln", "rd", "cir", "hwy",
-    "pkwy", "ter", "trl", "way", "sq", "loop", "cv", "xing", "xrd",
-    "aly", "walk", "path", "pike", "rte", "route",
-)
-STREET_SUFFIX_PATTERN = r"\s+(" + "|".join(STREET_SUFFIXES) + r")$"
 
-def clean_address(s: pd.Series, locality: pd.Series | None = None, state: pd.Series | None = None) -> pd.Series:
+# address cleaning for builty permit side
+ABBREVS = [(r'\bstreet\b', 'st'), (r'\bavenue\b', 'ave'), (r'\bboulevard\b', 'blvd'),
+           (r'\bdrive\b', 'dr'), (r'\bcourt\b', 'ct'), (r'\bplace\b', 'pl'), (r'\blane\b', 'ln'),
+           (r'\broad\b', 'rd'), (r'\bcircle\b', 'cir'), (r'\bhighway\b', 'hwy'), (r'\bparkway\b', 'pkwy'),
+           (r'\bterrace\b', 'ter'), (r'\btrail\b', 'trl'), (r'\bnorth\b', 'n'), (r'\bsouth\b', 's'),
+           (r'\beast\b', 'e'), (r'\bwest\b', 'w'), (r'\bapartment\b', 'apt'), (r'\bsuite\b', 'ste'),
+           (r'\bunit\b', 'apt'), (r'\bsquare\b', 'sq'), (r'\bcove\b', 'cv'), (r'\bcrossing\b', 'xing'),
+           (r'\balley\b', 'aly'), (r'#', 'apt ')]
+ABBREVS.append((r'\bpoint\b', 'pt'))
+STREET_SUFFIX_PATTERN = r"\s+(" + "|".join((
+    "st", "ave", "blvd", "dr", "ct", "pl", "ln", "rd", "cir", "hwy", "pkwy", "ter", "trl", "way",
+    "sq", "loop", "cv", "xing", "xrd", "aly", "walk", "path", "pike", "rte", "route")) + r")$"
+
+
+# clean permit address to match ATTOM format
+def clean_address(s: pd.Series, locality: pd.Series, state: pd.Series) -> pd.Series:
     s = s.fillna("").str.lower().str.strip()
+    # true address is before comma (after comma is city, state, etc)
+    s = s.str.split(",").str[0]
     s = s.str.replace(",", "", regex=False).str.replace(".", "", regex=False)
     s = s.str.replace(r'\b(\d{5})-\d{4}\b', r'\1', regex=True)
     s = s.str.replace(r'\b(\d{5})\d{4}\b', r'\1', regex=True)
-    s = s.str.replace(r'\b\d{5}\b\s*$', '', regex=True)
-    if state is not None:
-        for st in sorted(set(state.fillna("").str.lower().str.strip()) - {""}, key=len, reverse=True):
-            s = s.str.replace(rf'\b{re.escape(st)}\b\s*$', '', regex=True)
-    if locality is not None:
-        loc_clean = locality.fillna("").str.lower().str.strip()
-        loc_clean = loc_clean.str.replace(r'[/\-()\.,]', ' ', regex=True)
-        loc_clean = loc_clean.str.replace(r'\s+', ' ', regex=True).str.strip()
-        for loc in sorted(set(loc_clean) - {""}, key=len, reverse=True):
-            s = s.str.replace(rf'\b{re.escape(loc)}\b\s*$', '', regex=True)
+    s = s.str.replace(r'\b\d{4,5}\b\s*$', '', regex=True)
+    #remove city names and state names from address
+    #don't remove 2-letter state abbreviation
+    state_names = {"ct": "connecticut", "de": "delaware", "ri": "rhode island"}
+    states_short = set(state.fillna("").str.lower().str.strip()) - {""}
+    states_full = {state_names.get(st, st) for st in states_short}
+    for st in sorted(states_full, key=len, reverse=True):
+        s = s.str.replace(rf'\b{re.escape(st)}\b\s*$', '', regex=True)
+    for st in states_short - {"ct"}:
+        s = s.str.replace(rf'\b{re.escape(st)}\b\s*$', '', regex=True)
+    loc_clean = locality.fillna("").str.lower().str.strip().str.replace(r'[/\-()\.,]', ' ', regex=True)
+    loc_clean = loc_clean.str.replace(r'\s+', ' ', regex=True).str.strip()
+    for loc in sorted(set(loc_clean) - {""}, key=len, reverse=True):
+        state_tail = "|".join(re.escape(x) for x in states_short | states_full)
+        s = s.str.replace(
+            rf'\b{re.escape(loc)}(?:\s+beach)?(?:\s+(?:{state_tail}))?\b\s*$',
+            '', regex=True,
+        )
+    # weird exceptions: Norwalk exports many addresses as "STREET (house number)"
+    s = s.str.replace(r'^(.+?)\s*\((\d{1,5})\)(?:\s+.*)?$', r'\2 \1', regex=True)
+    s = s.str.replace(r'^0+(\d+)\s+', r'\1 ', regex=True)
+    #weird exceptions: Old Saybrook appends a parcel/unit marker to the street address.
+    s = s.str.replace(r'-\d+\s*$', '', regex=True)
     s = s.str.replace(r'\s+city of.*$', '', regex=True)
+    #fix format and abbreviations
     for pat, repl in ABBREVS:
         s = s.str.replace(pat, repl, regex=True)
+    s = s.str.replace(r'\bcr\b', 'cir', regex=True)
+    s = s.str.replace(r'\bpk\b', 'park', regex=True)
+    s = s.str.replace(r'\bla\b$', 'ln', regex=True)
+    s = s.str.replace(r'\b(trl|rd|st|ave|dr|ln|ct)\s+\1\b$', r'\1', regex=True)
+    s = s.str.replace(r'\btrl\s+trl\b', 'trl', regex=True)
+    s = s.str.replace(r'^152 overshores dr e$', '152 overshores e', regex=True)
+    s = s.str.replace(r'\s+milton$', '', regex=True)
     return s.str.replace(r'\s+', ' ', regex=True).str.strip()
 
-def drop_trailing_suffix(s: pd.Series) -> pd.Series:
-    return s.fillna("").str.replace(STREET_SUFFIX_PATTERN, "", regex=True).str.strip()
 
-def clean_zip(s: pd.Series) -> pd.Series:
-    return s.fillna("").str.strip().str.extract(r'^(\d{5})')[0].fillna("")
-
+# ZIP field with fallback to ZIP embedded in the address text
 def recover_zip(zip_s: pd.Series, addr_s: pd.Series) -> pd.Series:
-    z = clean_zip(zip_s)
+    z = zip_s.fillna("").str.strip().str.extract(r'^(\d{5})')[0].fillna("")
     addr = addr_s.fillna("").astype(str)
-    from_dash_zip = addr.str.extract(r'\b(\d{5})-\d{4}\b')[0]
-    from_nine_zip = addr.str.extract(r'\b(\d{5})\d{4}\b')[0]
-    from_plain_zip = addr.str.extract(r'\b(\d{5})\b')[0]
-    recovered = from_dash_zip.fillna(from_nine_zip).fillna(from_plain_zip).fillna("")
+    recovered = (addr.str.extract(r'\b(\d{5})-\d{4}\b')[0]
+                 .fillna(addr.str.extract(r'\b(\d{5})\d{4}\b')[0])
+                 .fillna(addr.str.extract(r'\b(\d{5})\b')[0]).fillna(""))
     return z.mask(z == "", recovered)
 
+
+# permit-side key fields
 permits["permit_row_id"] = np.arange(len(permits))
-permits["addr_clean"] = clean_address(
-    permits["STREET_ADDRESS"],
-    locality=permits["LOCALITY"] if "LOCALITY" in permits.columns else None,
-    state=permits["STATE"] if "STATE" in permits.columns else None,
-)
+permits["addr_clean"] = clean_address(permits["STREET_ADDRESS"], permits["LOCALITY"], permits["STATE"])
 permits["zip_clean"] = recover_zip(permits["ZIPCODE"], permits["STREET_ADDRESS"])
-permits["addr_nosuffix"] = drop_trailing_suffix(permits["addr_clean"])
+permits["addr_nosuffix"] = permits["addr_clean"].str.replace(STREET_SUFFIX_PATTERN, "", regex=True).str.strip()
+permits["addr_nosuffix"] = permits["addr_nosuffix"].str.replace(
+    r'\s+(apt|unit|ste)\s+.*$', '', regex=True
+).str.strip()
+permits["addr_compact"] = permits["addr_nosuffix"].str.replace(" ", "", regex=False)
 
-# ---------------------------------------------------------------------------
-# 4. Load ATTOM and match each permit to the closest current/prior tax year
-# ---------------------------------------------------------------------------
-print("\nLoading ATTOM match candidates...")
-attom_addr_clean_sql = addr_clean_sql(addr_col)
-attom_county_sql = county_clean_sql(county_col) if county_col else "NULL"
+# load ATTOM and clean
+if attom_frame is not None: #already loaded as df
+    con.register("attom_input", attom_frame)
+    attom_source = "attom_input"
+    attom_candidate_filter = ""
+else: #parquet
+    attom_source = f"read_parquet({quote_sql(attom_input)})"
+    con.register("permit_keys", permits[["addr_clean", "addr_nosuffix", "addr_compact"]].drop_duplicates())
+    attom_candidate_filter = f"""
+      AND (
+          {addr_clean_sql(ADDR_COL)} IN (SELECT addr_clean FROM permit_keys)
+          OR {addr_nosuffix_sql(addr_clean_sql(ADDR_COL))}
+             IN (SELECT addr_nosuffix FROM permit_keys)
+          OR {addr_compact_sql(addr_clean_sql(ADDR_COL))}
+             IN (SELECT addr_compact FROM permit_keys)
+      )
+    """
+    #build df
 attom = con.execute(f"""
-    SELECT
-        {keep_sql},
-        {attom_addr_clean_sql} AS addr_clean,
-        {addr_nosuffix_sql(attom_addr_clean_sql)} AS addr_nosuffix,
-        {zip_clean_sql(zip_col)} AS zip_clean,
-        {attom_county_sql} AS attom_county_fips,
+    SELECT {keep_sql},
+        {addr_clean_sql(ADDR_COL)} AS addr_clean,
+        {addr_nosuffix_sql(addr_clean_sql(ADDR_COL))} AS addr_nosuffix,
+        {addr_compact_sql(addr_clean_sql(ADDR_COL))} AS addr_compact,
+        {zip_clean_sql("attom_zipcode")} AS zip_clean,
+        {county_clean_sql(COUNTY_COL)} AS attom_county_fips,
         1 AS attom_record_present
-    FROM read_parquet({attom_relation})
-    WHERE "{addr_col}" IS NOT NULL AND trim("{addr_col}") != ''
-      AND "{zip_col}"  IS NOT NULL AND trim("{zip_col}")  != ''
+    FROM {attom_source}
+    WHERE "{ADDR_COL}" IS NOT NULL AND trim("{ADDR_COL}") != ''
+      AND "{ZIP_COL}"  IS NOT NULL AND trim("{ZIP_COL}")  != ''
+      {attom_candidate_filter}
 """).df()
-print(f"  Loaded ATTOM candidates: {len(attom):,}")
+attom = attom.drop(columns=[ADDR_COL, COUNTY_COL])
+attom["attom_assessment_year"] = pd.to_numeric(attom.pop("TAXYEARASSESSED"), errors="coerce")
 
-attom = attom.drop(columns=[addr_col, zip_col, county_col], errors="ignore")
-attom["attom_assessment_year"] = pd.to_numeric(attom.get("TAXYEARASSESSED"), errors="coerce")
-attom = attom.drop(columns=["TAXYEARASSESSED"], errors="ignore")
-
-attom_value_cols = [
-    c
-    for c in attom.columns
-    if c not in ("addr_clean", "addr_nosuffix", "zip_clean", "attom_county_fips")
-]
+# match start empty and fill in
+attom_value_cols = [c for c in attom.columns if c not in ("addr_clean", "addr_nosuffix", "addr_compact", "zip_clean", "attom_county_fips")]
+for c in attom_value_cols:
+    permits[c] = pd.Series(pd.NA, index=permits.index, dtype="object")
 permits["attom_match_tier"] = "unmatched"
+# prior = at or before permit; post = nearest later year if needed
+permits["attom_value_asof"] = pd.Series(pd.NA, index=permits.index, dtype="object")
 
 
-def apply_temporal_match(
-    permits_df: pd.DataFrame,
-    attom_df: pd.DataFrame,
-    permit_keys: list[str],
-    attom_keys: list[str],
-    tier_name: str,
-    require_unique_property: bool,
-) -> pd.DataFrame:
+# match permits on a given address key and pick the closest prior year, requiring attom is nonmissing
+def apply_temporal_match(permits_df, attom_df, permit_keys, attom_keys, tier_name, require_unique_property):
     unmatched_mask = permits_df["attom_match_tier"] == "unmatched"
-    if not unmatched_mask.any():
-        return permits_df
+    candidate = attom_df[attom_df[attom_keys[0]].astype(str).str.len().gt(0)
+                         & attom_df[attom_keys[1]].astype(str).str.len().gt(0)
+                         & attom_df["attom_assessment_year"].notna()].copy()
+    if require_unique_property:
+        counts = candidate.groupby(attom_keys)["ATTOMID"].nunique().rename("n").reset_index()
+        candidate = candidate.merge(counts, on=attom_keys, how="left")
+        candidate = candidate[candidate["n"] <= 1].drop(columns="n")
 
-    candidate = attom_df[
-        attom_df[attom_keys[0]].notna()
-        & (attom_df[attom_keys[0]].astype(str).str.len() > 0)
-        & attom_df[attom_keys[1]].notna()
-        & (attom_df[attom_keys[1]].astype(str).str.len() > 0)
-        & attom_df["attom_assessment_year"].notna()
-    ].copy()
-    if require_unique_property and "ATTOMID" in candidate.columns:
-        key_counts = (
-            candidate.groupby(attom_keys)["ATTOMID"]
-            .nunique(dropna=True)
-            .rename("n_properties")
-            .reset_index()
-        )
-        candidate = candidate.merge(key_counts, on=attom_keys, how="left")
-        candidate = candidate[candidate["n_properties"] <= 1].drop(columns=["n_properties"])
-
-    candidate = candidate[attom_keys + attom_value_cols].rename(
-        columns=dict(zip(attom_keys, permit_keys))
-    )
-    matches = permits_df.loc[
-        unmatched_mask, ["permit_row_id", "permit_year"] + permit_keys
-    ].merge(candidate, on=permit_keys, how="left")
+    candidate = candidate[attom_keys + attom_value_cols].rename(columns=dict(zip(attom_keys, permit_keys)))
+    matches = permits_df.loc[unmatched_mask, ["permit_row_id", "permit_year"] + permit_keys].merge(candidate, on=permit_keys, how="left")
     matches = matches[matches["attom_record_present"].notna()]
-    if matches.empty:
-        return permits_df
-
-    matches = matches[
-        matches["permit_year"].notna()
-        & (matches["attom_assessment_year"] <= matches["permit_year"])
-    ]
-    if matches.empty:
-        return permits_df
-
-    matches = matches.sort_values(
-        ["permit_row_id", "attom_assessment_year"],
-        ascending=[True, False],
-    ).drop_duplicates("permit_row_id", keep="first")
+    #pick best attom value, aka using closest assessment year
+    missing_permit_year = matches["permit_year"].isna()
+    is_prior = matches["attom_assessment_year"] <= matches["permit_year"]
+    matches = matches.assign(
+        _is_prior=is_prior,
+        _rank=np.where(
+            missing_permit_year,
+            -matches["attom_assessment_year"],
+            np.where(is_prior, -matches["attom_assessment_year"], matches["attom_assessment_year"]),
+        ),
+    )
+    matches = matches.sort_values(["permit_row_id", "_is_prior", "_rank"], ascending=[True, False, True]).drop_duplicates("permit_row_id")
+    matches["attom_value_asof"] = np.where(
+        missing_permit_year.loc[matches.index], "undated",
+        np.where(matches["_is_prior"], "prior", "post"),
+    )
 
     permits_by_id = permits_df.set_index("permit_row_id", drop=False)
     matches_by_id = matches.set_index("permit_row_id")
-    for col in attom_value_cols:
+    for col in attom_value_cols + ["attom_value_asof"]:
         permits_by_id.loc[matches_by_id.index, col] = matches_by_id[col]
     permits_by_id.loc[matches_by_id.index, "attom_match_tier"] = tier_name
     return permits_by_id.reset_index(drop=True)
 
 
-permits = apply_temporal_match(
-    permits_df=permits,
-    attom_df=attom,
-    permit_keys=["addr_clean", "zip_clean"],
-    attom_keys=["addr_clean", "zip_clean"],
-    tier_name="exact",
-    require_unique_property=False,
-)
-exact_n = int((permits["attom_match_tier"] == "exact").sum())
+# run the match tiers from precise to loose. tiers as before.
+permits = apply_temporal_match(permits, attom, ["addr_clean", "zip_clean"], ["addr_clean", "zip_clean"], "exact", False)
+permits = apply_temporal_match(permits, attom, ["addr_nosuffix", "zip_clean"], ["addr_nosuffix", "zip_clean"], "unique_no_suffix", True)
+permits = apply_temporal_match(permits, attom, ["addr_compact", "zip_clean"], ["addr_compact", "zip_clean"], "unique_compact", True)
+permits = apply_temporal_match(permits, attom, ["addr_clean", "county_fips"], ["addr_clean", "attom_county_fips"], "unique_addr_county", True)
+permits = apply_temporal_match(permits, attom, ["addr_nosuffix", "county_fips"], ["addr_nosuffix", "attom_county_fips"], "unique_nosuffix_county", True)
+permits = apply_temporal_match(permits, attom, ["addr_compact", "county_fips"], ["addr_compact", "attom_county_fips"], "unique_compact_county", True)
 
-permits = apply_temporal_match(
-    permits_df=permits,
-    attom_df=attom,
-    permit_keys=["addr_nosuffix", "zip_clean"],
-    attom_keys=["addr_nosuffix", "zip_clean"],
-    tier_name="unique_no_suffix",
-    require_unique_property=True,
-)
-fallback_n = int((permits["attom_match_tier"] == "unique_no_suffix").sum())
+# if the permit ZIP is missing, use the ATTOM ZIP when it exists.
+attom_zip = permits["attom_zipcode"].fillna("").astype(str).str.extract(r"^(\d{5})", expand=False).fillna("")
+fill_attom_zip = permits["zip_clean"].eq("") & attom_zip.ne("") & permits["attom_match_tier"].ne("unmatched")
+permits.loc[fill_attom_zip, "zip_clean"] = attom_zip[fill_attom_zip]
+permits.loc[fill_attom_zip, "ZIPCODE"] = attom_zip[fill_attom_zip]
+if "ZIPCODE_SOURCE" not in permits.columns:
+    permits["ZIPCODE_SOURCE"] = ""
+permits.loc[fill_attom_zip, "ZIPCODE_SOURCE"] = "attom"
 
-county_exact_n = 0
-county_nosuffix_n = 0
-if county_col:
-    print("  Applying unique address+county fallbacks...")
-    permits = apply_temporal_match(
-        permits_df=permits,
-        attom_df=attom,
-        permit_keys=["addr_clean", "county_fips"],
-        attom_keys=["addr_clean", "attom_county_fips"],
-        tier_name="unique_addr_county",
-        require_unique_property=True,
-    )
-    county_exact_n = int((permits["attom_match_tier"] == "unique_addr_county").sum())
-
-    permits = apply_temporal_match(
-        permits_df=permits,
-        attom_df=attom,
-        permit_keys=["addr_nosuffix", "county_fips"],
-        attom_keys=["addr_nosuffix", "attom_county_fips"],
-        tier_name="unique_nosuffix_county",
-        require_unique_property=True,
-    )
-    county_nosuffix_n = int((permits["attom_match_tier"] == "unique_nosuffix_county").sum())
-
-matched_n = int((permits["attom_match_tier"] != "unmatched").sum())
-print(f"  Exact ATTOM address matches:        {exact_n:,} / {len(permits):,} ({exact_n/len(permits)*100:.1f}%)")
-print(f"  Unique no-suffix fallback matches:  {fallback_n:,} / {len(permits):,} ({fallback_n/len(permits)*100:.1f}%)")
-if county_col:
-    print(f"  Unique address+county matches:      {county_exact_n:,} / {len(permits):,} ({county_exact_n/len(permits)*100:.1f}%)")
-    print(f"  Unique no-suffix+county matches:    {county_nosuffix_n:,} / {len(permits):,} ({county_nosuffix_n/len(permits)*100:.1f}%)")
-print(f"  Total ATTOM address matches:        {matched_n:,} / {len(permits):,} ({matched_n/len(permits)*100:.1f}%)")
-
-# ---------------------------------------------------------------------------
-# 5. Derive property value variables
-# ---------------------------------------------------------------------------
-for c in [
-    "TAXASSESSEDVALUETOTAL",
-    "TAXASSESSEDVALUEIMPROVEMENTS",
-    "PREVIOUSASSESSEDVALUE",
-    "YEARBUILT",
-    "YEARBUILTEFFECTIVE",
-    "attom_assessment_year",
-]:
-    if c in permits.columns:
-        permits[c] = pd.to_numeric(permits[c], errors="coerce")
-
-permits["pre_flood_assessed_value"] = pd.to_numeric(
-    permits["TAXASSESSEDVALUETOTAL"], errors="coerce"
-)
-if "PREVIOUSASSESSEDVALUE" in permits.columns:
-    permits["pre_flood_assessed_value"] = permits["pre_flood_assessed_value"].fillna(
-        pd.to_numeric(permits["PREVIOUSASSESSEDVALUE"], errors="coerce")
-    )
+# final clean up: convert var to numeric.
+for c in ["TAXASSESSEDVALUETOTAL", "TAXASSESSEDVALUEIMPROVEMENTS", "PREVIOUSASSESSEDVALUE",
+          "YEARBUILT", "YEARBUILTEFFECTIVE", "attom_assessment_year", "PROJECT_VALUE"]:
+    permits[c] = pd.to_numeric(permits[c], errors="coerce")
+#cleaned property value measure: assessed value if possible, then fall back to prior
+permits["pre_flood_assessed_value"] = permits["TAXASSESSEDVALUETOTAL"].fillna(permits["PREVIOUSASSESSEDVALUE"])
 permits["prop_value"] = permits["pre_flood_assessed_value"]
-permits["prop_value"] = pd.to_numeric(permits["prop_value"], errors="coerce")
-permits["PROJECT_VALUE"] = pd.to_numeric(permits["PROJECT_VALUE"], errors="coerce")
 
-permits["log_prop_value"] = np.log(permits["prop_value"].where(permits["prop_value"] > 0))
-permits["log_project_value"] = np.log(permits["PROJECT_VALUE"].where(permits["PROJECT_VALUE"] > 0))
-valid_value_cost = ((permits["prop_value"] > 0) & (permits["PROJECT_VALUE"] > 0)).fillna(False)
-permits["val_cost_ratio"] = np.where(
-    valid_value_cost,
-    permits["prop_value"] / permits["PROJECT_VALUE"], np.nan,
-)
+#check if have censusblockgroupfips that is valid
+valid = ((permits["prop_value"] > 0) & (permits["PROJECT_VALUE"] > 0)).fillna(False)
+permits["val_cost_ratio"] = np.where(valid, permits["prop_value"] / permits["PROJECT_VALUE"], np.nan)
+permits["attom_has_blockgroup"] = (
+    permits["censusblockgroupfips"].fillna("").astype(str).str.len() == 12
+).astype(int)
 
-# ---------------------------------------------------------------------------
-# 6. Diagnostics, variable order, and save
-# ---------------------------------------------------------------------------
-diagnostics_path = Path(args.diagnostics) if args.diagnostics else out_path.with_name(
-    f"{out_path.stem}_attom_diagnostics.csv"
-)
-diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
-diagnostics = (
-    permits.assign(
-        has_attom_match=permits["attom_match_tier"] != "unmatched",
-        has_prop_value=permits["prop_value"].notna(),
-    )
-    .groupby(["county_fips", "permit_year", "attom_match_tier"], dropna=False)
-    .agg(
-        n=("permit_row_id", "size"),
-        n_prop_value=("has_prop_value", "sum"),
-        n_attom_match=("has_attom_match", "sum"),
-    )
-    .reset_index()
-)
+#  diagnostics and final save
+
+#coverage table to check
+diagnostics_path = Path(args.diagnostics) if args.diagnostics else out_path.with_name(f"{out_path.stem}_attom_diagnostics.csv")
+diagnostics = (permits.assign(has_prop_value=permits["prop_value"].notna(),
+                              has_blockgroup=permits["attom_has_blockgroup"].eq(1))
+               .groupby(["county_fips", "permit_year", "attom_match_tier"], dropna=False)
+               .agg(n=("permit_row_id", "size"),
+                    n_prop_value=("has_prop_value", "sum"),
+                    n_blockgroup=("has_blockgroup", "sum")).reset_index())
 diagnostics["prop_value_rate"] = diagnostics["n_prop_value"] / diagnostics["n"]
+diagnostics["blockgroup_rate"] = diagnostics["n_blockgroup"] / diagnostics["n"]
 diagnostics.to_csv(diagnostics_path, index=False)
-print(f"  Diagnostics: {diagnostics_path}")
 
-id_cols    = ["county_fips", "zip_clean", "permit_year", "permit_date", "BUILTY_ID", "addr_clean"]
-val_cols   = ["prop_value", "pre_flood_assessed_value", "log_prop_value",
-              "attom_assessment_year",
-              "TAXASSESSEDVALUETOTAL",
-              "TAXASSESSEDVALUEIMPROVEMENTS", "PREVIOUSASSESSEDVALUE",
-              "YEARBUILT", "YEARBUILTEFFECTIVE", "attom_match_tier"]
-job_cols   = ["PROJECT_VALUE", "log_project_value", "val_cost_ratio"]
-hma_cols   = [c for c in permits.columns if c.startswith("hma_")]
-
-ordered = [c for c in id_cols + val_cols + job_cols + hma_cols
-           if c in permits.columns]
+#reorder
+id_cols = ["county_fips", "zip_clean", "permit_year", "permit_date", "BUILTY_ID", "addr_clean"]
+val_cols = ["prop_value", "pre_flood_assessed_value", "log_prop_value", "attom_assessment_year",
+            "attom_value_asof",
+            "attom_zipcode",
+            "TAXASSESSEDVALUETOTAL", "TAXASSESSEDVALUEIMPROVEMENTS", "PREVIOUSASSESSEDVALUE",
+            "YEARBUILT", "YEARBUILTEFFECTIVE", "attom_match_tier",
+            "censusblockgroupfips", "geocode_match",
+            "longitude", "latitude", "attom_has_blockgroup"]
+job_cols = ["PROJECT_VALUE", "log_project_value", "val_cost_ratio"]
+ordered = [c for c in id_cols + val_cols + job_cols if c in permits.columns]
 rest = [c for c in permits.columns if c not in ordered]
 permits = permits[ordered + rest].sort_values(["county_fips", "permit_year"]).reset_index(drop=True)
-
-out_path.parent.mkdir(parents=True, exist_ok=True)
 permits.to_parquet(out_path, index=False)
 
-print(f"\nSaved: {out_path}")
-print(f"Shape: {permits.shape[0]:,} rows × {permits.shape[1]} columns")
-print(f"  With ATTOM prop_value:          {permits['prop_value'].notna().sum():,}")
+# Final summary printout
+n_matched = int((permits["attom_match_tier"] != "unmatched").sum())
+print(f"{STATE}: {len(permits):,} permits, {n_matched:,} matched ({n_matched / len(permits):.0%}), saved {out_path.name}")
