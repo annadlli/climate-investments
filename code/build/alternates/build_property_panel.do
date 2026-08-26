@@ -37,9 +37,9 @@ label var last_policy_year "Last NFIP appearance"
 
 //drop if ever_elevated == 0
 
-*keep year that is closest to when elevation occurred
-bysort property_id (policy_year): keep if elevated == 1 & _n == 1
-replace elevated = ever_elevated
+*keep the first policy-year in which the property is observed elevated
+keep if elevated == 1
+bysort property_id (policy_year): keep if _n == 1
 drop ever_elevated
 
 *note: first 2 digit of countycode represent state, generated to merge with hma later

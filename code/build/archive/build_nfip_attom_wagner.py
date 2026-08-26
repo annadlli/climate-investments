@@ -1,32 +1,9 @@
-"""Build a Wagner-style NFIP-to-ATTOM property assignment.
-
-Authors: Anna Li and Vendela Norman
+"""Authors: Anna Li and Vendela Norman
 Date: 2026-08-10
 
-Description:
-    Matches the complete cleaned NFIP single-family policy universe to ATTOM
-    single-family properties (PROPERTYUSESTANDARDIZED == 385). ATTOM properties
-    carry NFHL flood-risk categories and NFIP communities from
-    build_attom_nfhl.py. Policies and houses are paired one-to-one within four
-    successively relaxed Wagner cells:
-
-      1. ZIP x exact construction year x flood risk x policy year
-      2. community x exact construction year x flood risk x policy year
-      3. community x 5-year construction bin x flood risk x policy year x post-FIRM
-      4. community x construction decade x flood risk x policy year x post-FIRM
-
-    Within-cell assignments are deterministic (NFIP input order; ATTOMID order)
-    but imputed, not observed parcel links. Each ATTOM property can receive at
-    most one NFIP policy within a policy year and can be reused in later years.
-
-    ATTOM values are selected as of each NFIP policy year: use the same tax year
-    when observed, otherwise the closest prior observed tax year. Properties
-    without any contemporaneous-or-prior tax assessment are not candidates in
-    that policy year. Every NFIP row is retained, including unmatched policies.
-
-Outputs:
-    {data}/build/nfhl_matches/{state}_nfip_attom_wagner.parquet
-    {data}/build/nfhl_matches/{state}_nfip_attom_wagner_diagnostics.csv
+Match NFIP policies to ATTOM single-family homes using a simple Wagner-style
+cell assignment. Keep every policy, even if it doesn't match, and save the
+value-year diagnostics alongside the final parquet.
 """
 
 from __future__ import annotations
@@ -55,6 +32,7 @@ def quote(value: str) -> str:
 
 
 def parse_args() -> argparse.Namespace:
+    # Small CLI wrapper for the state-level NFIP match job.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--data", required=True, help="Data root passed from master.do."
@@ -77,6 +55,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def normalize_identifier(series: pd.Series, width: int | None = None) -> pd.Series:
+    # Clean up IDs so ZIPs, communities, and zone labels line up across files.
     values = series.astype("string").str.strip().str.upper()
     values = values.replace({"<NA>": pd.NA, "NAN": pd.NA, "NONE": pd.NA, "": pd.NA})
     if width:
@@ -86,6 +65,7 @@ def normalize_identifier(series: pd.Series, width: int | None = None) -> pd.Seri
 
 
 def normalize_zone(series: pd.Series) -> pd.Series:
+    # Turn AE/A1 and VE/V1 type labels into the same flood-zone buckets 
     zone = normalize_identifier(series).str.replace(" ", "", regex=False)
     numbered_a = zone.str.fullmatch(r"A\d{1,2}").fillna(False)
     numbered_v = zone.str.fullmatch(r"V\d{1,2}").fillna(False)
@@ -95,6 +75,7 @@ def normalize_zone(series: pd.Series) -> pd.Series:
 
 
 def flood_risk_category(series: pd.Series) -> pd.Series:
+    # High-risk vs low-risk split for the Wagner cell definitions.
     zone = normalize_zone(series)
     out = pd.Series(pd.NA, index=zone.index, dtype="string")
     out.loc[zone.isin(["A", "AE", "AH", "AO", "V", "VE"])] = "high_risk"
@@ -105,6 +86,7 @@ def flood_risk_category(series: pd.Series) -> pd.Series:
 def resolve_inputs(
     args: argparse.Namespace, data: Path, state: str
 ) -> tuple[Path, Path, Path, Path]:
+    # Point to the right ATTOM, NFHL, and NFIP files for each state run.
     attom = (
         Path(args.attom)
         if args.attom
@@ -131,7 +113,7 @@ def resolve_inputs(
 def load_nfip(path: Path, state: str) -> pd.DataFrame:
     frame = pd.read_stata(path, convert_categoricals=False)
     frame.columns = [str(column).lower() for column in frame.columns]
-    # Build Wagner keys on the NFIP side.
+    # Build the keys we need for the Wagner matching cells.
     frame.insert(0, "_nfip_rowid", range(1, len(frame) + 1))
     frame["state"] = state.upper()
     frame["zip_key"] = normalize_identifier(frame["zipcode"], 5)
@@ -163,7 +145,7 @@ def create_tables(
     nfhl_path: Path,
     priority_ids: pd.DataFrame,
 ) -> None:
-    # Load the NFIP panel and add columns filled by the match.
+    # Load the NFIP panel and set up the fields that will hold each assignment.
     con.register("nfip_frame", nfip)
     con.execute("CREATE TABLE nfip AS SELECT * FROM nfip_frame")
     con.unregister("nfip_frame")
@@ -182,8 +164,8 @@ def create_tables(
     attom = quote(str(attom_path))
     nfhl = quote(str(nfhl_path))
 
-    # Collapse ATTOM assessments to one record per property and tax year.
-    # Combine ATTOM property attributes with NFHL risk and community fields.
+    # Keep a single ATTOM value record per property-year, then merge in the NFHL
+    # flood and community information needed for cell matching.
     con.execute(
         f"""
         CREATE TABLE tax_values AS
@@ -258,7 +240,7 @@ def create_tables(
     """
     )
 
-    # Keep houses that can enter at least one observed Wagner cell.
+    # Restrict to houses that actually have a plausible match in at least one cell.
     con.execute(
         """
         CREATE TABLE properties AS
@@ -279,7 +261,7 @@ def create_tables(
     """
     )
 
-    # Keep tax histories only for Wagner-eligible houses.
+    # Trim the tax history to the houses that can plausibly be used in the match.
     con.execute(
         """
         CREATE TABLE candidate_tax_values AS
@@ -294,7 +276,7 @@ def create_tables(
         flush=True,
     )
 
-    # Expand houses over policy years and attach the closest prior tax value.
+    # Expand each house across policy years and attach the closest earlier tax value.
     con.execute(
         """
         CREATE TABLE housing AS
@@ -344,7 +326,7 @@ def create_tables(
 
 
 def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str) -> int:
-    # Rank policies and houses within the current Wagner cell and pair by rank.
+    # Rank policies and houses inside each cell, then pair them one-to-one.
     key_sql = ", ".join(keys)
     nonmissing = " AND ".join(f"{key} IS NOT NULL" for key in keys)
     con.execute("DROP TABLE IF EXISTS tier_hits")
@@ -371,7 +353,7 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str) -> i
     """
     )
     count = con.execute("SELECT count(*) FROM tier_hits").fetchone()[0]
-    # Write the matched ATTOM property and value onto the NFIP record.
+    # Save the matched ATTOM property and value onto the policy record.
     assignments = [
         f"wagner_tier = {quote(label)}",
         "matched_attomid = h.attomid",
@@ -398,7 +380,7 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str) -> i
 
 
 def main() -> None:
-    # Resolve inputs and prepare the optional Builty-priority list.
+    # Resolve the file paths and the optional priority list for the run.
     args = parse_args()
     data = Path(args.data)
     state = args.state.lower()
@@ -414,7 +396,7 @@ def main() -> None:
     else:
         priority_ids = pd.DataFrame({"attomid": pd.Series(dtype="string")})
 
-    # Configure DuckDB for the state-level build.
+    # Set up DuckDB for the state-level build.
     con = duckdb.connect()
     con.execute(f"SET memory_limit={quote(args.memory)}")
     con.execute(f"SET threads={args.threads}")
@@ -424,7 +406,7 @@ def main() -> None:
         tmp.mkdir(parents=True, exist_ok=True)
         con.execute(f"SET temp_directory={quote(str(tmp))}")
 
-    # Build the candidate tables and apply Wagner's four tiers in order.
+    # Build the candidate tables and step through the four Wagner tiers in order.
     print(f"NFIP policies: {len(nfip):,}")
     create_tables(con, nfip, attom_path, nfhl_path, priority_ids)
     print(
@@ -466,7 +448,7 @@ def main() -> None:
     ]
     tier_counts = [(label, apply_tier(con, keys, label)) for keys, label in tiers]
 
-    # Save the full NFIP panel and a compact match diagnostic.
+    # Save the final NFIP panel and a compact match summary.
     out.parent.mkdir(parents=True, exist_ok=True)
     con.execute(
         f"COPY (SELECT * EXCLUDE (_nfip_rowid) FROM nfip ORDER BY _nfip_rowid) TO {quote(str(out))} (FORMAT PARQUET, COMPRESSION ZSTD)"
