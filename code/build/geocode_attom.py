@@ -161,7 +161,7 @@ def write_chunks(df: pd.DataFrame, chunk_dir: Path, chunk_size: int) -> list[Pat
 
 
 def geocode_chunk(chunk: Path, out: Path, benchmark: str, vintage: str, timeout: int) -> str:
-    # If a result file already exists and is non-empty, skip rerun -> allow rerunning after failures
+    # If a result file already exists and is non-empty, skip rerun; allow rerunning after failures
     if out.exists() and out.stat().st_size > 0:
         return "cached"
 
@@ -180,7 +180,8 @@ def geocode_chunk(chunk: Path, out: Path, benchmark: str, vintage: str, timeout:
             tmp.write_text(r.text, encoding="utf-8")
             tmp.replace(out)
             return "ok"
-        except Exception as e:
+        except requests.RequestException as e:
+            # Retry network and HTTP failures only
             if attempt == 4:
                 return f"failed: {e}"
             time.sleep(90 * (attempt + 1))
@@ -188,8 +189,7 @@ def geocode_chunk(chunk: Path, out: Path, benchmark: str, vintage: str, timeout:
 
 
 def prune_bad_results(chunks: list[Path], result_dir: Path) -> int:
-    # If a saved output file is corrupt or incomplete relative to its input chunk,
-    # drop it so the chunk will be geocoded again on the next run.
+    # If a saved output file is corrupt or incomplete relative to its input chunk, drop it so the chunk will be geocoded again on the next run.
     pruned = 0
     for c in chunks:
         outf = result_dir / f"{c.stem}_out.csv"
@@ -267,10 +267,10 @@ def geocode(addrs: pd.DataFrame, work: Path, benchmark: str, vintage: str,
     jobs = {c: result_dir / f"{c.stem}_out.csv" for c in chunks}
     pending = [c for c, o in jobs.items() if not (o.exists() and o.stat().st_size > 0)]
     if pending:
-        try:
-            preflight(chunk_dir, work, benchmark, vintage)
-        except Exception as e:  # noqa: BLE001
-            print(f"Preflight check failed ({e}); continuing with the batch run anyway.")
+        # Probe the geocoder before committing to the full batch. Preflight
+        # exists to stop a doomed run, so let a failure here propagate: a broken
+        # endpoint or chunk format otherwise costs hours and yields empty files.
+        preflight(chunk_dir, work, benchmark, vintage)
 
     done = failed = 0
     with ThreadPoolExecutor(max_workers=workers) as ex:

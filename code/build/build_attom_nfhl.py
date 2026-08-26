@@ -1,11 +1,14 @@
 """
 Authors: Anna Li
-Date: 2026-08-12
+Original Date: 2026-08-12
+Revised Date: 2026-08-16
 
-Tie NFHL flood info to ATTOM homes, using Wagner's 2018 NFHL files.
- Use the geocoded ATTOM points, join them to FEMA flood and community polygons, and keep the property row even if the match
-is missing.
-This uses census pulled latitude and longitude coordinates
+Works out which FEMA flood zone and which NFIP community each ATTOM property
+sits in, using Wagner's historical NFHL maps.
+
+The coordinates come from the Census geocoder (geocode_attom.py), not from
+ATTOM, which ships no usable ones. Every property stays in the output whether
+or not it landed inside a polygon, so nothing silently disappears here.
 """
 
 from __future__ import annotations
@@ -14,354 +17,233 @@ import argparse
 import re
 from pathlib import Path
 
-import geopandas as gpd
 import duckdb
+import geopandas as gpd
 import pandas as pd
 import pyogrio
 
+# the NFHL downloads are filed by state FIPS, so we need the code for each state
+STATE_FIPS = {
+    "al": "01", "ct": "09", "de": "10", "fl": "12", "ga": "13",
+    "la": "22", "me": "23", "md": "24", "ma": "25", "ms": "28",
+    "nh": "33", "nj": "34", "ny": "36", "nc": "37", "pa": "42",
+    "ri": "44", "sc": "45", "tx": "48", "vt": "50", "va": "51",
+}
+
+# the fields we want off each NFHL layer
+FLOOD_FIELDS = ["FLD_ZONE", "ZONE_SUBTY", "SFHA_TF", "STATIC_BFE", "DEPTH", "DFIRM_ID"]
+COMMUNITY_FIELDS = ["CID", "COMM_NO", "COM_NFO_ID", "POL_NAME1", "CO_FIPS", "ST_FIPS", "DFIRM_ID"]
+
 
 def parse_args() -> argparse.Namespace:
-    # this script expects the data root, state code, NFHL file, and the point layer.
-    parser = argparse.ArgumentParser(
-        description="Spatially join geocoded ATTOM properties to FEMA NFHL polygons."
-    )
-    parser.add_argument(
-        "--data", required=True, help="Data root passed from master.do."
-    )
+    # where the data lives, which state, and which NFHL download to read
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", required=True, help="Two-letter state abbreviation.")
-    parser.add_argument(
-        "--nfhl",
-        required=True,
-        help=(
-            "NFHL .gdb/.gpkg, or a root containing state-FIPS directories "
-            "such as nfhl/50/NFHL_50_20161207.gdb."
-        ),
-    )
-    parser.add_argument(
-        "--points",
-        help="Optional ATTOMID-level geocode parquet; defaults to the pipeline output.",
-    )
-    parser.add_argument("--out", help="Optional output parquet path.")
-    parser.add_argument(
-        "--flood-layer", help="Override the detected S_FLD_HAZ_AR layer."
-    )
-    parser.add_argument(
-        "--community-layer", help="Override the detected S_POL_AR layer."
-    )
+    parser.add_argument("--nfhl", required=True,
+                        help="An NFHL .gdb/.gpkg, or a folder of state-FIPS subfolders "
+                             "such as nfhl/50/NFHL_50_20161207.gdb.")
+    parser.add_argument("--points", required=True,
+                        help="ATTOMID-level geocode parquet from step 1.")
+    parser.add_argument("--out", required=True, help="Output parquet path.")
     return parser.parse_args()
 
 
-def normalized_name(value: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", value.upper())
-
-
-STATE_FIPS = {
-    "al": "01",
-    "ct": "09",
-    "de": "10",
-    "fl": "12",
-    "ga": "13",
-    "la": "22",
-    "me": "23",
-    "md": "24",
-    "ma": "25",
-    "ms": "28",
-    "nh": "33",
-    "nj": "34",
-    "ny": "36",
-    "nc": "37",
-    "pa": "42",
-    "ri": "44",
-    "sc": "45",
-    "tx": "48",
-    "vt": "50",
-    "va": "51",
-}
-
-
 def resolve_nfhl(path: Path, state: str) -> Path:
-    # look for the NFHL map gdb
+    # either we were handed the map file directly, or we go find it under the state's folder
     if path.suffix.lower() in {".gdb", ".gpkg"}:
         return path
-    if state not in STATE_FIPS:
-        raise ValueError(f"No FIPS mapping configured for state {state!r}.")
-
-    fips = STATE_FIPS[state]
-    candidates = sorted((path / fips).glob("*.gdb"))
-    if len(candidates) != 1:
-        raise FileNotFoundError(
-            f"Expected exactly one .gdb under {path / fips}; found: {candidates}"
-        )
-    return candidates[0]
+    return sorted((path / STATE_FIPS[state]).glob("*.gdb"))[0]
 
 
-def find_layer(dataset: Path, override: str | None, expected: str) -> str:
-    # Pull the layer names from the NFHL file and match the one wanted, detecting by name.
+def find_layer(dataset: Path, expected: str) -> str | None:
+    # layer names vary a bit between NFHL vintages, so match on letters and digits
+    # only, and fall back to a suffix match before giving up
+    def simplify(name: str) -> str:
+        return re.sub(r"[^A-Z0-9]", "", str(name).upper())
+
     layers = [str(row[0]) for row in pyogrio.list_layers(dataset)]
-    if override:
-        if override not in layers:
-            raise ValueError(
-                f"Layer {override!r} not found. Available layers: {layers}"
-            )
-        return override
-
-    target = normalized_name(expected)
-    exact = [layer for layer in layers if normalized_name(layer) == target]
-    suffix = [layer for layer in layers if normalized_name(layer).endswith(target)]
+    target = simplify(expected)
+    exact = [layer for layer in layers if simplify(layer) == target]
+    suffix = [layer for layer in layers if simplify(layer).endswith(target)]
     candidates = exact or suffix
-    if len(candidates) != 1:
-        raise ValueError(
-            f"Could not uniquely detect {expected}. Candidates: {candidates}; "
-            f"available layers: {layers}. Supply the corresponding --*-layer argument."
-        )
-    return candidates[0]
+    return candidates[0] if len(candidates) == 1 else None
 
 
-def attach_firm_dates(community: pd.DataFrame, dataset: Path) -> pd.DataFrame:
-    # FEMA community records can carry the initial NFIP / FIRMs date. Attach it to each community polygon match.
-    if "com_nfo_id" not in community:
-        community["initial_firm_year"] = pd.NA
-        return community
-
-    layer = find_layer(dataset, None, "L_COMM_INFO")
-    info = pyogrio.read_dataframe(
-        dataset,
-        layer=layer,
-        columns=["COM_NFO_ID", "IN_FRM_DAT", "IN_NFIP_DT"],
-    )
-    info.columns = [str(column).lower() for column in info.columns]
-    firm = pd.to_datetime(info["in_frm_dat"], errors="coerce", utc=True).dt.year
-    nfip = pd.to_datetime(info["in_nfip_dt"], errors="coerce", utc=True).dt.year
-    info["initial_firm_year"] = firm.where(firm.between(1968, 2027), nfip)
-    info.loc[~info["initial_firm_year"].between(1968, 2027), "initial_firm_year"] = (
-        pd.NA
-    )
-    # Exclude missing COM_NFO_ID rows so an unmatched spatial point cannot inherit a date from an unrelated missing-key lookup record.
-    info = info.loc[info["com_nfo_id"].notna(), ["com_nfo_id", "initial_firm_year"]]
-    info = info.drop_duplicates("com_nfo_id")
-    return community.merge(info, on="com_nfo_id", how="left", validate="many_to_one")
+def resolve_points(points: str, state: str) -> Path:
+    # The geocoded panel from step 1 is the only source of coordinates here as ATTOM doesn't have good coordinates (mostly missing). run_matching.sh owns the layout.
+    path = Path(points)
+    if not path.exists():
+        raise FileNotFoundError(f"No geocoded ATTOM panel for {state}: {path}")
+    return path
 
 
-def resolve_points(data: Path, state: str, override: str | None) -> Path:
-    # Find the geocoded ATTOM file, that will be matched to NFHL polygons.
-    if override:
-        path = Path(override)
-        if not path.exists():
-            raise FileNotFoundError(path)
-        return path
-
-    candidates = [
-        data / "build" / f"{state}_attom_blockgroups.parquet",
-        data / "build" / f"{state}_attom_geocoded.parquet",
-        data / "build" / "geocoded" / f"{state}_attom_geocoded.parquet",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    raise FileNotFoundError(
-        "No geocoded ATTOM output found. Expected one of: "
-        + ", ".join(str(path) for path in candidates)
-    )
-
-
-def load_points(data: Path, state: str, override: str | None) -> pd.DataFrame:
-    # Read the ATTOM point file, keep the most useful fields, and collapse repeated property rows down to one coordinate row per ATTOMID.
-    path = resolve_points(data, state, override)
+def load_points(points_path: str, state: str) -> pd.DataFrame:
+    # read the geocoded properties. The file may be a property x year panel, so
+    # take one coordinate row per property, preferring one that actually has coordinates
+    path = resolve_points(points_path, state)
     con = duckdb.connect()
-    schema = con.execute(
-        "DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]
-    ).fetchall()
-    source_columns = {str(row[0]).lower(): str(row[0]) for row in schema}
-    required = {"attomid", "longitude", "latitude"}
-    missing = required - set(source_columns)
-    if missing:
-        raise ValueError(f"{path} is missing required columns: {sorted(missing)}")
+    schema = con.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]).fetchall()
+    columns = {str(row[0]).lower(): str(row[0]) for row in schema}
 
-    #  keep one coordinate record per ATTOMID.
     keep = ["attomid", "longitude", "latitude"]
-    for column in ("match", "geocode_match", "match_type"):
-        if column in source_columns:
-            keep.append(column)
-    select = ", ".join(f'"{source_columns[column]}" AS "{column}"' for column in keep)
-    points = con.execute(
-        f"""
-        SELECT * EXCLUDE (_row_number)
-        FROM (
+    keep += [c for c in ("match", "geocode_match", "match_type") if c in columns]
+    select = ", ".join(f'"{columns[c]}" AS "{c}"' for c in keep)
+    points = con.execute(f"""
+        SELECT * EXCLUDE (row_num) FROM (
             SELECT {select},
-                   row_number() OVER (
-                       PARTITION BY cast("{source_columns['attomid']}" AS varchar)
-                       ORDER BY "{source_columns['longitude']}" IS NULL,
-                                "{source_columns['latitude']}" IS NULL
-                   ) AS _row_number
+                   row_number() OVER (PARTITION BY cast("{columns['attomid']}" AS varchar)
+                                      ORDER BY "{columns['longitude']}" IS NULL,
+                                               "{columns['latitude']}" IS NULL) AS row_num
             FROM read_parquet(?)
-        )
-        WHERE _row_number = 1
-        """,
-        [str(path)],
-    ).fetchdf()
+        ) WHERE row_num = 1
+    """, [str(path)]).fetchdf()
     con.close()
+
     points["attomid"] = points["attomid"].astype(str)
     points["longitude"] = pd.to_numeric(points["longitude"], errors="coerce")
     points["latitude"] = pd.to_numeric(points["latitude"], errors="coerce")
-    points = points.sort_values("attomid")
-    return points
+    return points.sort_values("attomid")
 
 
-def select_fields(
-    frame: gpd.GeoDataFrame, wanted: list[str]
-) -> tuple[gpd.GeoDataFrame, dict[str, str]]:
-    # Select variables and lowercase it
-    by_upper = {str(column).upper(): str(column) for column in frame.columns}
+def spatial_attributes(points: gpd.GeoDataFrame, polygons: gpd.GeoDataFrame,
+                       wanted: list[str], prefix: str) -> pd.DataFrame:
+    # keep only the polygon fields desired, renamed to lowercase
+    by_upper = {str(column).upper(): str(column) for column in polygons.columns}
     found = {name: by_upper[name] for name in wanted if name in by_upper}
-    selected = frame[list(found.values()) + [frame.geometry.name]].copy()
-    selected = selected.rename(
-        columns={source: target.lower() for target, source in found.items()}
-    )
-    return selected, found
+    polygons = polygons[list(found.values()) + [polygons.geometry.name]].copy()
+    polygons = polygons.rename(columns={src: name.lower() for name, src in found.items()})
+
+    # measure each polygon in an equal-area projection so the areas are comparable
+    polygons["polygon_area"] = polygons.to_crs("EPSG:5070").geometry.area
+
+    # drop each property into the polygons it falls inside
+    joined = gpd.sjoin(points.to_crs(polygons.crs), polygons, how="left", predicate="within")
+
+    # note how many polygons a property hit, then keep the smallest one
+    joined[f"{prefix}_candidate_count"] = (
+        joined.groupby("attomid")["index_right"].transform(lambda hits: hits.notna().sum()))
+    joined = joined.sort_values(["attomid", "polygon_area", "index_right"],
+                                na_position="last").drop_duplicates("attomid", keep="first")
+
+    columns = ["attomid", f"{prefix}_candidate_count"] + [name.lower() for name in found]
+    return joined[columns].reset_index(drop=True)
 
 
-def spatial_attributes(
-    point_frame: gpd.GeoDataFrame,
-    polygons: gpd.GeoDataFrame,
-    attributes: list[str],
-    prefix: str,
-) -> pd.DataFrame:
-    # Spatial join: take ATTOM points, match them to flood/community polygons, and keep the most specific polygon when a point hits more
-    polygons, found = select_fields(polygons, attributes)
-    if not found:
-        raise ValueError(
-            f"The {prefix} layer contains none of the expected fields: {attributes}"
-        )
-    if polygons.crs is None:
-        raise ValueError(f"The {prefix} layer has no coordinate reference system.")
+def attach_firm_dates(community: pd.DataFrame, dataset: Path) -> pd.DataFrame:
+    # the community lookup table carries the date each town got its first flood map,
+    # which is what decides whether a house counts as pre- or post-FIRM later on
+    layer = find_layer(dataset, "L_COMM_INFO") if "com_nfo_id" in community else None
+    if layer is None:
+        community["initial_firm_year"] = pd.NA
+        community["firm_info_layer_found"] = False
+        return community
 
-    # If a point lands in more than one polygon, take the smaller one.
-    polygons["_polygon_area"] = polygons.to_crs("EPSG:5070").geometry.area
-    projected_points = point_frame.to_crs(polygons.crs)
-    joined = gpd.sjoin(projected_points, polygons, how="left", predicate="within")
-    joined[f"{prefix}_candidate_count"] = joined.groupby("attomid")[
-        "index_right"
-    ].transform(lambda values: values.notna().sum())
-    joined = joined.sort_values(
-        ["attomid", "_polygon_area", "index_right"], na_position="last"
-    ).drop_duplicates("attomid", keep="first")
+    info = pyogrio.read_dataframe(dataset, layer=layer,
+                                  columns=["COM_NFO_ID", "IN_FRM_DAT", "IN_NFIP_DT"])
+    info.columns = [str(column).lower() for column in info.columns]
 
-    attribute_columns = [name.lower() for name in found]
-    return joined[
-        ["attomid", f"{prefix}_candidate_count"] + attribute_columns
-    ].reset_index(drop=True)
+    # prefer the FIRM date, fall back to the date the town joined NFIP, and ignore
+    # anything outside the years the program has existed
+    firm = pd.to_datetime(info["in_frm_dat"], errors="coerce", utc=True).dt.year
+    nfip = pd.to_datetime(info["in_nfip_dt"], errors="coerce", utc=True).dt.year
+    info["initial_firm_year"] = firm.where(firm.between(1968, 2027), nfip)
+    info.loc[~info["initial_firm_year"].between(1968, 2027), "initial_firm_year"] = pd.NA
+
+    # drop lookup rows with no key, otherwise an unmatched property could pick up
+    # a date from a completely unrelated record
+    info = info.loc[info["com_nfo_id"].notna(), ["com_nfo_id", "initial_firm_year"]]
+    info = info.drop_duplicates("com_nfo_id")
+
+    community = community.merge(info, on="com_nfo_id", how="left", validate="many_to_one")
+    community["firm_info_layer_found"] = True
+    return community
 
 
-def diagnostic_row(metric: str, count: int, denominator: int) -> dict[str, object]:
-    # keeps the counts and percent shares in one easy-to-read place.
-    return {
-        "metric": metric,
-        "count": int(count),
-        "percent": round(100 * count / denominator, 2) if denominator else 0.0,
-    }
+def normalize_community_id(series: pd.Series) -> pd.Series:
+    # NFIP community numbers are six digits; ATTOM's side sometimes loses the
+    # leading zero or arrives as a float, so put it back into the same shape
+    values = series.str.strip().str.replace(r"\.0$", "", regex=True)
+    numeric = values.str.fullmatch(r"\d+").fillna(False)
+    values.loc[numeric] = values.loc[numeric].str.zfill(6)
+    return values.replace("", pd.NA)
 
-# Main flow: load points, clean up coordinates, match to flood/community  polygons, attach outputs, and save a diagnostics file.
+
 def main() -> None:
     args = parse_args()
-    data = Path(args.data)
     state = args.state.lower()
-    nfhl_root = Path(args.nfhl)
-    if not nfhl_root.exists():
-        raise FileNotFoundError(nfhl_root)
-    nfhl = resolve_nfhl(nfhl_root, state)
+    nfhl = resolve_nfhl(Path(args.nfhl), state)
     print(f"NFHL database: {nfhl}")
 
-    # Keep only rows with valid latitude/longitude and a geocode match when that field exists.
-    points = load_points(data, state, args.points)
+    # load the geocoded properties and work out which ones we can actually place:
+    # they need real coordinates and a genuine geocoder match, not a guess
+    points = load_points(args.points, state)
     valid = points["longitude"].between(-180, 180) & points["latitude"].between(-90, 90)
-    if "geocode_match" in points:
-        valid &= points["geocode_match"].eq("Match")
-    elif "match" in points:
-        valid &= points["match"].eq("Match")
+    match_column = "geocode_match" if "geocode_match" in points else "match"
+    valid &= points[match_column].eq("Match")
 
-    # Keep only the ATTOM rows with usable Census geocoder coordinates.
-    spatial = gpd.GeoDataFrame(
+    # turn those into map points the spatial join can use
+    placeable = gpd.GeoDataFrame(
         points.loc[valid, ["attomid"]].copy(),
-        geometry=gpd.points_from_xy(
-            points.loc[valid, "longitude"], points.loc[valid, "latitude"]
-        ),
-        crs="EPSG:4326",
-    )
+        geometry=gpd.points_from_xy(points.loc[valid, "longitude"], points.loc[valid, "latitude"]),
+        crs="EPSG:4326")
 
-    # Read the flood and community layers once for a state.
-    flood_layer = find_layer(nfhl, args.flood_layer, "S_FLD_HAZ_AR")
-    community_layer = find_layer(nfhl, args.community_layer, "S_POL_AR")
+    # read the two NFHL layers once each: flood hazard areas and political boundaries
+    flood_layer = find_layer(nfhl, "S_FLD_HAZ_AR")
+    community_layer = find_layer(nfhl, "S_POL_AR")
+    if flood_layer is None or community_layer is None:
+        available = [str(row[0]) for row in pyogrio.list_layers(nfhl)]
+        raise ValueError(
+            f"Required NFHL layers not found in {nfhl}: "
+            f"flood={flood_layer}, community={community_layer}; "
+            f"available={available}"
+        )
     print(f"Flood layer: {flood_layer}")
     print(f"Community layer: {community_layer}")
-
     flood_polygons = gpd.read_file(nfhl, layer=flood_layer, engine="pyogrio")
     community_polygons = gpd.read_file(nfhl, layer=community_layer, engine="pyogrio")
 
-    flood = spatial_attributes(
-        spatial,
-        flood_polygons,
-        ["FLD_ZONE", "ZONE_SUBTY", "SFHA_TF", "STATIC_BFE", "DEPTH", "DFIRM_ID"],
-        "flood",
-    )
-    community = spatial_attributes(
-        spatial,
-        community_polygons,
-        ["CID", "COMM_NO", "COM_NFO_ID", "POL_NAME1", "CO_FIPS", "ST_FIPS", "DFIRM_ID"],
-        "community",
-    )
+    # do the two spatial joins. Both layers have a DFIRM_ID, so rename them apart
+    flood = spatial_attributes(placeable, flood_polygons, FLOOD_FIELDS, "flood")
+    flood = flood.rename(columns={"dfirm_id": "flood_dfirm_id"})
+    community = spatial_attributes(placeable, community_polygons, COMMUNITY_FIELDS, "community")
+    community = community.rename(columns={"dfirm_id": "community_dfirm_id"})
     community = attach_firm_dates(community, nfhl)
 
-    # Attach the flood and community results back to the full ATTOM file
-    # flag  whether each property matched a flood polygon, a community polygon,
-    # or neither.
+    # put the flood and community results back onto every property, including the
+    # ones we could not place, which simply come back blank
     result = points.merge(flood, on="attomid", how="left", validate="one_to_one")
     result = result.merge(community, on="attomid", how="left", validate="one_to_one")
+
+    # FEMA writes -9999 where a base flood elevation or depth is not published
     for column in ("static_bfe", "depth"):
-        if column in result:
-            result.loc[result[column] <= -9990, column] = pd.NA
+        result.loc[result[column] <= -9990, column] = pd.NA
+
+    # flag what each property managed to match
     result["nfhl_flood_matched"] = result["flood_candidate_count"].fillna(0).gt(0)
-    result["nfhl_community_matched"] = (
-        result["community_candidate_count"].fillna(0).gt(0)
-    )
+    result["nfhl_community_matched"] = result["community_candidate_count"].fillna(0).gt(0)
 
-    if "cid" in result:
-        result["nfip_community_id"] = result["cid"].fillna("").astype(str)
-    elif "comm_no" in result:
-        result["nfip_community_id"] = result["comm_no"].fillna("").astype(str)
+    # CID is the community number we want; COMM_NO is the older name for it
+    community_id = "cid" if "cid" in result else "comm_no"
+    result["nfip_community_id"] = normalize_community_id(result[community_id].fillna("").astype(str))
 
-    out = (
-        Path(args.out)
-        if args.out
-        else data / "build" / "nfhl_matches" / f"{state}_attom_nfhl.parquet"
-    )
+    # write the property-level flood file
+    out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     result.to_parquet(out, index=False)
 
-    n = len(result)
-    diagnostics = pd.DataFrame(
-        [
-            diagnostic_row("ATTOM properties", n, n),
-            diagnostic_row("valid accepted coordinates", int(valid.sum()), n),
-            diagnostic_row(
-                "matched to flood polygon", int(result["nfhl_flood_matched"].sum()), n
-            ),
-            diagnostic_row(
-                "matched to community polygon",
-                int(result["nfhl_community_matched"].sum()),
-                n,
-            ),
-            diagnostic_row(
-                "multiple flood candidates",
-                int(result["flood_candidate_count"].fillna(0).gt(1).sum()),
-                n,
-            ),
-            diagnostic_row(
-                "multiple community candidates",
-                int(result["community_candidate_count"].fillna(0).gt(1).sum()),
-                n,
-            ),
-        ]
-    )
+    # summarise how the join went so coverage problems are visible straight away
+    total = len(result)
+    counts = [
+        ("ATTOM properties", total),
+        ("valid accepted coordinates", int(valid.sum())),
+        ("matched to flood polygon", int(result["nfhl_flood_matched"].sum())),
+        ("matched to community polygon", int(result["nfhl_community_matched"].sum())),
+        ("multiple flood candidates", int(result["flood_candidate_count"].fillna(0).gt(1).sum())),
+        ("multiple community candidates", int(result["community_candidate_count"].fillna(0).gt(1).sum())),
+    ]
+    diagnostics = pd.DataFrame([
+        {"metric": metric, "count": count, "percent": round(100 * count / total, 2) if total else 0.0}
+        for metric, count in counts])
     diagnostics_path = out.with_name(f"{out.stem}_diagnostics.csv")
     diagnostics.to_csv(diagnostics_path, index=False)
     print(diagnostics.to_string(index=False))
