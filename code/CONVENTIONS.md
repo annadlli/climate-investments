@@ -70,7 +70,16 @@ Notes / Sources: ...
 - **Never use `destring ..., replace force`.** Without `force`, `destring` refuses to convert a variable that holds any non-numeric character and leaves it untouched — a useful guardrail. `force` overrides that and recodes every unparseable value to missing (`.`), silently dropping data. If a `destring` won't go through cleanly, diagnose *why* first: strip stray characters (`destring var, replace ignore("$,%")`) or keep the variable as a string — don't `force` past it.
 - **Geographic identifiers stay strings — don't `destring` them at all.** ZIP, state/county FIPS, census tract and block group are labels spelled with digits.
 
-## 6. Workflow
+## 6. No defensive boilerplate
+
+- **Don't add unrequested defensive code** — input-existence checks, `di as error` + `exit` blocks,
+  try/except wrappers, re-validating what upstream already guarantees. It clutters the pipeline and
+  is the signature of AI-generated code. If an input is missing, the natural error (Stata's own
+  file-not-found, Python's traceback) points at the same problem with less code.
+- A guard is warranted only where the failure would otherwise be **silent** (e.g. a merge or filter
+  that quietly matches nothing) — and only deliberately, not as reflex.
+
+## 7. Workflow
 
 - `master.do` runs **construction only** (clean → build) via `0/1` switches; no analysis or descriptives files yet.
 - **Jupyter notebooks (`.ipynb`) are never part of the construction pipeline** — `master.do` calls only `.do`/`.py`. Notebooks are fine for exploratory / one-off work (e.g. descriptives graph), but anything the pipeline depends on must be a `.do` or `.py` script.
@@ -82,7 +91,7 @@ Notes / Sources: ...
 - **Verify the push actually landed — don't assume.** After pushing, confirm: `git status` is clean and `git log origin/<branch>` shows your commit. (A GitHub Desktop push has silently failed before.)
 - **Start every session by pulling from GitHub.** Same risk in reverse: editing a stale file invites avoidable merge conflicts. Run `git fetch`, check ahead/behind, and `git pull --rebase` when the tree is clean. If you have uncommitted work, review it first — don't blind-pull onto a dirty tree.
 
-## 7. Project docs — what goes where (keep them separate)
+## 8. Project docs — what goes where (keep them separate)
 
 - **`CONVENTIONS.md`** (this file) — the rules. Owned by Vendela. Agents running on Vendela's machine may edit it directly on her behalf; collaborators and their agents (e.g. Anna's) propose changes to her rather than editing.
 - **`CLAUDE.md` / `AGENTS.md`** — agent entry points: *stable* project knowledge (pipeline, layout, data sources) + pointers. **Not** a task list, **not** a place to restate conventions.
