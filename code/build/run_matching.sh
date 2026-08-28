@@ -69,7 +69,7 @@ TMP="${TMP:-${OUT_ROOT}/tmp/${ST}}"
 # below reads in the same order it runs.
 # -----------------------------------------------------------------------------
 RAW_ATTOM="${DATA}/raw/attom/attom_${ST}.parquet"
-# build_attom_nfhl.py globs <root>/<state-fips>/*.gdb, so the root is the folder
+# attom_nfhl.py globs <root>/<state-fips>/*.gdb, so the root is the folder
 # holding the numbered state directories -- one level below raw/nfhl.
 NFHL_ROOT="${DATA}/raw/nfhl/nfhl"
 GEOCODE_WORK="${DATA}/build/attom_geocode/${ST}_addr"
@@ -138,7 +138,7 @@ if step_needed "1/5" "${GEOCODED}"; then
             "${GEOCODE_WORK}/attomid_xwalk.parquet" \
             "${GEOCODE_WORK}/blockgroups_by_address.parquet"
     echo "[1/5] ATTOM geocoded panel"
-    "${PYTHON}" "${CODE}/build_attom_geocoded.py" \
+    "${PYTHON}" "${CODE}/attom_geocoded.py" \
         --state "${STU}" --data "${DATA}" --sample 0 \
         --out "${GEOCODED}" --blockgroups-out "${BLOCKGROUPS}" \
         --tmp "${TMP}/geocoded" --memory "${MEMORY}"
@@ -153,7 +153,7 @@ fi
 if step_needed "2/5" "${NFHL}"; then
     require "${GEOCODED}" "${NFHL_ROOT}"
     echo "[2/5] ATTOM--NFHL spatial join"
-    "${PYTHON}" "${CODE}/build_attom_nfhl.py" \
+    "${PYTHON}" "${CODE}/attom_nfhl.py" \
         --state "${STU}" --nfhl "${NFHL_ROOT}" \
         --points "${GEOCODED}" --out "${NFHL}"
 fi
@@ -169,7 +169,7 @@ fi
 if step_needed "3/5" "${BUILTY}"; then
     require "${RAW_ATTOM}" "${PERMITS}"
     echo "[3/5] Builty--ATTOM address match against raw ATTOM"
-    "${PYTHON}" "${CODE}/build_attom_onto_permits.py" \
+    "${PYTHON}" "${CODE}/attom_onto_permits.py" \
         --state "${STU}" --data "${DATA}" --permits "${PERMITS}" \
         --attom "${RAW_ATTOM}" --out "${BUILTY}" --diagnostics "${BUILTY_DIAG}" \
         --tmp "${TMP}/builty" --memory "${MEMORY}" --threads "${THREADS}"
@@ -184,7 +184,7 @@ fi
 if step_needed "4/5" "${ENRICHED}"; then
     require "${NFHL}" "${BUILTY}"
     echo "[4/5] Left merge Builty onto the ATTOM--NFHL universe"
-    "${PYTHON}" "${CODE}/build_attom_nfhl_builty.py" \
+    "${PYTHON}" "${CODE}/attom_nfhl_builty.py" \
         --attom-nfhl "${NFHL}" --builty-attom "${BUILTY}" \
         --out "${ENRICHED}" --diagnostics "${ENRICH_DIAG}"
 fi

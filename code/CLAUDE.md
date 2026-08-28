@@ -50,7 +50,7 @@ clean/clean_nfip_multiple_loss.do -> clean/nfip_multiple_loss.dta
 build/prep_fma.do                 -> clean/fma_zip.dta + clean/fma_county.dta
 build/prep_nfip_policies.do       -> clean/nfip_policies_property.dta    (policy-year -> property)
 build/compile.do                  -> analysis/analysis.dta               (property-level analysis set)
-build/build_attom_value_cells.py  -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
+build/alternates/attom_value_cells.py -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
                                      (.sh = Torch/SLURM wrapper)
 ```
 
@@ -60,7 +60,7 @@ The merge doubles as the funding screen — MitProps logs properties for applica
 funded, so the Projects status filter is what removes them. `prep_fma.do` then pools grants to ZIP
 (primary) and county (fallback); `clean_nfip_claims.do` is parked in `scratch/` pending the ∆D work.
 
-`build_attom_value_cells.py` aggregates raw ATTOM to ZIP/county × construction-year/decade value
+`attom_value_cells.py` aggregates raw ATTOM to ZIP/county × construction-year/decade value
 cells — NFIP has no street address, so these merge property values onto the NFIP universe by cell.
 
 `clean_builty.do` screens each state to true home elevations (Section 1 → `builty_states/`), then
@@ -78,7 +78,7 @@ code/
 ├── master.do                 local code/data roots, args-pass + 0/1 switches; clean + build
 ├── clean/                    import_dewey.py (acquisition) + extract_* (national -> per-state) + clean_* (raw -> clean)
 │   └── archive/              dropped sources (clean_nri/npr, nri_prep, clean_fma_projects) + torch_work/ (NYU cluster acquisition)
-├── build/                    prep_fma, prep_nfip_policies, compile + build_attom_value_cells.py (+.sh)
+├── build/                    prep_fma, prep_nfip_policies, compile + alternates/attom_value_cells.py
 │   └── archive/              Gen-1 merge/panel scripts + nfip_build.do + deprioritized Builty chain
 ├── descriptives/             descriptive scripts (Gen-1 in descriptives/archive/, await rebuild)
 └── analysis/                 regressions, RD, identification (Gen-1 in analysis/archive/, await rebuild)

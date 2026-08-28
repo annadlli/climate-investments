@@ -46,7 +46,7 @@ per step, wired into `master.do`, nothing stranded or duplicated.
       Gen-1; delete the live copy or justify it).
 - [ ] **`build_nfip_attom_fma_analysis.do` is not wired into `master.do`** — wire it in behind a
       switch, move it to `analysis/`, or archive it.
-- [ ] **Verify `build_property_panel.do` + `compile_nfip_attom_fma.do`** (the `build_nfip_attom_fma`
+- [ ] **Verify `property_panel.do` + `compile_nfip_attom_fma.do`** (the `nfip_attom_fma`
       / `compile_property` switches): are these current, or Gen-1 mirrors of the archived panel
       scripts? Consolidate with the geocode chain so the Builty→ATTOM→NFIP path reads top to bottom.
 - [ ] **The `temp wagner` links key on a per-dataset `property_id` that doesn't align with the
@@ -330,7 +330,7 @@ independent geo fields at once = the geocode/boundary enrichment module was neve
 in the delivered feed. `import_dewey.py` downloads Dewey files wholesale (no column
 filtering), so we received ATTOM's assessor/tax + address table without the geo enrichment.
 
-**Why it matters.** With no census geo on the ATTOM side, `build_attom_value_cells.py` can
+**Why it matters.** With no census geo on the ATTOM side, `attom_value_cells.py` can
 only aggregate to **ZIP/county × year** (median ~720 ATTOM homes per zip×year cell; 29% of
 NFIP properties unmatched on VA). NFIP itself *has* block group (99.7% filled, 5,836 distinct
 on VA), so if ATTOM carried block group we could merge at **block-group × construction-year**
