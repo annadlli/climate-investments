@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-08-04
+Date: 2026-08-27
 
 Description: Runs the data-construction pipeline for the climate-investments
     project.
@@ -27,16 +27,16 @@ local dewey_run_id ""
 * Paths 
 * -----------------------------------------------------------------------------
 
-/* * --- Vendela ---
+* --- Vendela ---
 local code "/Users/vendelasolvindnorman/Documents/Econ_PhD/Projects/climate-investments/code"
 local data "/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
 local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
-*/
+
 
 * --- Anna ---
-local code "/Users/anna/Desktop/climate-investments/code"
+/* local code "/Users/anna/Desktop/climate-investments/code"
 local data "/Users/anna/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
-local python "/opt/anaconda3/bin/python"
+local python "/opt/anaconda3/bin/python" */
 
 * -----------------------------------------------------------------------------
 * Section 1: Set switches 
@@ -52,31 +52,27 @@ local clean_cpi                = 0 // clean CPI deflator data
 local clean_fma                = 0 // clean FEMA FMA data
 local clean_builty             = 0 // clean Builty permits data
 local clean_nfip_policies      = 0 // clean NFIP policies data
+local clean_nfip_claims        = 0 // clean NFIP claims data
 local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
 
 // ii) Build
 local prep_fma                 = 0 // collapse FMA across years to zip/county level
-local prep_nfip_policies       = 1 // collapse NFIP policy data to property level
-local compile                  = 1 // compile property-level analysis dataset
+local prep_nfip_policies       = 0 // collapse NFIP policy data to property level
+local compile                  = 0 // compile property-level analysis dataset
+local complete                 = 1 // prepares final analysis dataset
+
+
 local compile2                 = 0 // PRELIMINARY: attach ATTOM values + Builty via Anna's Wagner links
 
-// iii) Build: Builty elevation permits -> ATTOM -> NFIP properties
-// Revised 2026-08-25 (Anna; calls to Anna's scripts only). The per-step
-// switches build_attom_geocoded, build_attom_nfhl, attom_onto_permits and
-// build_attom_nfhl_builty were removed rather than left at 0: each wrote into a
-// separate directory with different flags, so running one produced numbers that
-// did not match the committed results. run_matching replaces all four and calls
-// the same five steps through code/build/run_matching.sh.
-// build_nfip_attom_wagner was removed with them -- the Wagner links are
-// superseded by the tier assignment in step 5.
+// iii) Build
 local geocode_attom            = 0 // extract ATTOM addresses + Census geocode to block groups
 local run_matching             = 0 // finalized 5-step Builty/ATTOM/NFIP matching, per state
-local build_policy_consensus   = 0 // alternate: policy-year links, then stable property consensus
-local compile_stable_property  = 1 // matching links -> labeled diagnostic + clean analysis files
+local policy_consensus         = 0 // alternate: policy-year links, then stable property consensus
+local compile_stable_property  = 0 // matching links -> labeled diagnostic + clean analysis files
 
 
-local build_attom_values       = 0 //generate attom state summary files
-local build_nfip_attom_fma     = 0 // build property-level analysis dataset state level
+local attom_values             = 0 //generate attom state summary files
+local nfip_attom_fma           = 0 // build property-level analysis dataset state level
 local compile_property         = 0 // compile property-level analysis datasets
 
 * -----------------------------------------------------------------------------
@@ -118,6 +114,9 @@ if `clean_builty' == 1 {
 if `clean_nfip_policies' == 1 {
     do "`code'/clean/clean_nfip_policies.do" "`data'" "`states'"
 }
+if `clean_nfip_claims' == 1 {
+    do "`code'/clean/clean_nfip_claims.do" "`data'" "`states'"
+}
 if `clean_nfip_multiple_loss' == 1 {
     do "`code'/clean/clean_nfip_multiple_loss.do" "`data'"
 }
@@ -132,12 +131,14 @@ if `prep_nfip_policies' == 1 {
 if `compile' == 1 {
     do "`code'/build/compile.do" "`data'" "`states'"
 }
+if `complete' == 1 {
+    do "`code'/build/complete.do" "`data'"
+}
 if `compile2' == 1 {
     do "`code'/build/compile2.do" "`data'" "`states'"
 }
 
 // iii) Build: Builty elevation permits -> ATTOM property values
-// VN NOTE: Your build code needs to be cleaned up / consolidated
 if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resume-safe
     foreach state of local states {
         shell `python' "`code'/build/geocode_attom.py" --data "`data'" --state "`state'"
@@ -165,7 +166,7 @@ if `run_matching' == 1 {
     }
 }
 
-if `build_policy_consensus' == 1 {
+if `policy_consensus' == 1 {
     * Alternate design: policy year enters every Wagner-style matching cell.
     * Repeated assignments become evidence for one stable property-level link.
     capture mkdir "`data'/build/nfip_attom_policy_year_v2"
@@ -203,14 +204,14 @@ if `compile_stable_property' == 1 {
     do "`code'/build/compile_nfip_property_attom.do" "`data'" "`states'"
 }
 
-if `build_attom_values' == 1 { //run with TORCH due to size, not locally
+if `attom_values' == 1 { //run with TORCH due to size, not locally
     foreach state of local states {
-        shell `python' "`code'/build/alternates/build_attom_value_cells.py" --data "`data'" --state "`state'"
+        shell `python' "`code'/build/alternates/attom_value_cells.py" --data "`data'" --state "`state'"
     }
 }
-if `build_nfip_attom_fma' == 1 {
+if `nfip_attom_fma' == 1 {
     foreach state of local states {
-        do "`code'/build/alternates/build_property_panel.do" "`data'" "`state'"
+        do "`code'/build/alternates/property_panel.do" "`data'" "`state'"
     }
 }
 if `compile_property' == 1 {

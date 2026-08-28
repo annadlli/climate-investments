@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Vendela Norman
-Date: 2026-07-16
+Date: 2026-08-27
 
 Description: Compiles the property-level analysis dataset, starting from NFIP-
     insured homes. 
@@ -17,7 +17,11 @@ use "`data'/clean/nfip_policies_property.dta", clear
 // subset of the NFIP policies data. Unmatched (2) due to sample restrictions in NFIP
 // like restricting to single-family homes (the SFHA restriction is now deferred downstream).
 merge m:1 originalconstructiondate censusblockgroupfips originalnbdate ///
-    using "`data'/clean/nfip_multiple_loss.dta", keep(1 3) keepusing(fma_rl fma_srl) nogen 
+    using "`data'/clean/nfip_multiple_loss.dta", keep(1 3) keepusing(*rl* *srl*) nogen 
+
+* Merge NFIP claims data
+merge m:1 originalconstructiondate censusblockgroupfips originalnbdate ///
+    using "`data'/clean/nfip_claims_property.dta", keep(1 3) nogen 
 
 * Merge in FMA grant data
 // Note: Until the FOIA requests come through this will have to be at the zip/county level
@@ -34,10 +38,10 @@ ren (n_grants n_properties fma_spend bcr year_min year_max) ///
     (fma_n_grants_county fma_n_properties_county fma_spend_county fma_bcr_county ///
      fma_year_min_county fma_year_max_county)
 
-* Set missing RL/SRL to 0
-// Note: Properties must have filed a claim to be classified as RL or SRL    
-replace fma_rl = 0 if missing(fma_rl)
-replace fma_srl = 0 if missing(fma_srl)
+* Set missings to 0   
+foreach var in fma_rl fma_srl {
+    replace `var' = 0 if mi(`var')
+}
 
 * Set missing FMA counts/spend to 0
 foreach grain in zip county {
@@ -51,9 +55,6 @@ drop originalconstructiondate originalnbdate countycode censustract
 drop got_elevated elevation_year elevated // not reliably recorded in NFIP data 
 
 * Note: Need to merge in ATTOM and Builty data. And create a new elevation variable (replacing got_elevated)
-
-* Sample restrictions -- applied downstream in the post-compile restriction do-file (SFHA, FMA)
-// drop if sfha == 1
 
 * Save analysis dataset
 sort state zipcode censusblockgroupfips
