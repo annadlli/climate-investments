@@ -94,7 +94,7 @@ see `clean/archive/` and `build/archive/`.
 | **Access** | FEMA NFIP/HMA files are public; ATTOM and Builty require a Dewey licence |
 
 Stata's GUI `PATH` does not pick up conda — set `local python` in `master.do` to the full interpreter
-path. `build_attom_value_cells.py` is sized for a cluster (Torch/SLURM wrapper: the matching `.sh`).
+path. The four shared GitHub shell entry points live in `code/slurm/`; local build and diagnostic wrappers remain beside the code they run.
 
 ## Reproducing
 

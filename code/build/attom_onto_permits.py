@@ -81,7 +81,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--permits", default=None)
     parser.add_argument("--attom", default=None)
     parser.add_argument("--out", default=None)
-    parser.add_argument("--diagnostics", default=None)
     parser.add_argument("--tmp", default="/tmp")
     parser.add_argument("--threads", default=4, type=int)
     parser.add_argument("--memory", default="32GB")
@@ -91,7 +90,6 @@ def parse_args() -> argparse.Namespace:
 
 def open_duckdb(args: argparse.Namespace) -> duckdb.DuckDBPyConnection:
     # ATTOM is far too big for memory, so give DuckDB a cap and somewhere to spill
-    Path(args.tmp).mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
     con.execute(f"SET temp_directory={quote_sql(args.tmp)}")
     con.execute(f"SET memory_limit={quote_sql(args.memory)}")
@@ -353,57 +351,6 @@ def apply_temporal_match(permits: pd.DataFrame, attom: pd.DataFrame, value_colum
     return by_id.reset_index(drop=True)
 
 
-def write_diagnostics(permits: pd.DataFrame, path: Path) -> None:
-    """Write two views of the match: a per-tier summary and a county detail file.
-
-    The summary is the one to read first. It is one row per tier plus a total,
-    so a reviewer can see the whole state's match rate without aggregating
-    anything, and it lines up with {state}_tier_diagnostics.csv from the
-    assignment step. The detail file is for locating *where* a bad rate lives.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Two coverage flags drive every number below: did the permit pick up an
-    # ATTOM value, and did it pick up a block group.
-    flagged = permits.assign(has_prop_value=permits["prop_value"].notna(),
-                             has_blockgroup=permits["attom_has_blockgroup"].eq(1))
-
-    def coverage(frame: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
-        # Count permits and the two coverage flags over whatever keys are given,
-        # then turn the counts into rates. dropna=False keeps rows with a missing
-        # county or year visible instead of dropping them from the totals.
-        out = (frame.groupby(keys, dropna=False)
-               .agg(n=("permit_row_id", "size"),
-                    n_prop_value=("has_prop_value", "sum"),
-                    n_blockgroup=("has_blockgroup", "sum")).reset_index())
-        out["prop_value_rate"] = out["n_prop_value"] / out["n"]
-        out["blockgroup_rate"] = out["n_blockgroup"] / out["n"]
-        return out
-
-    # Per-tier summary, ordered by the tier ladder so it reads top-down like the
-    # matching itself, with unmatched permits last.
-    by_tier = coverage(flagged, ["attom_match_tier"])
-    # MATCH_TIERS rows are (permit_keys, attom_keys, tier_label, require_unique)
-    order = [tier for _, _, tier, _ in MATCH_TIERS] + ["unmatched"]
-    by_tier["tier_number"] = by_tier["attom_match_tier"].map(
-        {tier: i for i, tier in enumerate(order, start=1)})
-    by_tier = by_tier.sort_values("tier_number").reset_index(drop=True)
-    by_tier["permit_share"] = by_tier["n"] / len(permits)
-
-    # A total row makes the headline match rate readable without any arithmetic.
-    total = coverage(flagged.assign(_all=1), ["_all"]).drop(columns="_all")
-    total.insert(0, "attom_match_tier", "TOTAL")
-    total["tier_number"] = len(order) + 1
-    total["permit_share"] = 1.0
-
-    summary_path = path.with_name(f"{path.stem}_by_tier.csv")
-    pd.concat([by_tier, total], ignore_index=True).to_csv(summary_path, index=False)
-
-    # County x year x tier detail, so a single bad county or vintage is findable.
-    coverage(flagged, ["county_fips", "permit_year", "attom_match_tier"]).to_csv(path, index=False)
-    print(f"Saved: {summary_path}")
-
-
 def reorder_columns(permits: pd.DataFrame) -> pd.DataFrame:
     # put the interesting columns up front so the file is readable by eye
     front = ["county_fips", "zip_clean", "permit_year", "permit_date", "BUILTY_ID", "addr_clean",
@@ -425,7 +372,6 @@ def main() -> None:
     permits_path = Path(args.permits) if args.permits else data / "build" / "builty_elevations_zipfilled.dta"
     attom_input = args.attom or str(data / "raw" / "attom" / f"attom_{state.lower()}.parquet")
     out_path = Path(args.out) if args.out else data / "build" / f"{state.lower()}_attom_permits.parquet"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     con = open_duckdb(args)
 
@@ -499,10 +445,7 @@ def main() -> None:
     permits["attom_has_blockgroup"] = (
         permits["censusblockgroupfips"].fillna("").astype(str).str.len() == 12).astype(int)
 
-    # save the matched file and its coverage table
-    diagnostics_path = (Path(args.diagnostics) if args.diagnostics
-                        else out_path.with_name(f"{out_path.stem}_attom_diagnostics.csv"))
-    write_diagnostics(permits, diagnostics_path)
+    # save the matched permits; diagnostics are generated separately in descriptives
     permits = reorder_columns(permits)
     permits.to_parquet(out_path, index=False)
 

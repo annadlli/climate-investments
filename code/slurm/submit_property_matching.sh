@@ -3,11 +3,11 @@
 # Authors: Anna Li
 # Date: 2026-08-25
 #
-# Cluster wrapper around run_matching.sh. It supplies the TORCH paths and the
+# Cluster wrapper around run_property_matching.sh. It supplies the TORCH paths and the
 # memory the big states need, then hands off; the five steps and their flags
-# live in run_matching.sh so there is only one place to change them.
+# live in the matching driver so there is only one place to change them.
 #
-#   sbatch code/build/run_matching_slurm.sh
+#   sbatch code/slurm/submit_property_matching.sh
 #
 # The array index picks the state, so all 20 run from one submission (two at a
 # time, to stay inside the ATTOM I/O budget). These directives are read by
@@ -35,11 +35,9 @@ PYTHON="${PYTHON:-/scratch/adl9602/venvs/py311/bin/python}"
 STATES=(al ct de fl ga la ma md me ms nc nh nj ny pa ri sc tx va vt)
 STATE="${STATES[${SLURM_ARRAY_TASK_ID:-0}]}"
 
-mkdir -p "${ROOT}/logs_out" "${ROOT}/logs_err"
-
 # Keep DuckDB's cap below the SLURM allocation: it spills to --tmp past this
 # point, whereas overshooting the allocation gets the job killed outright.
-exec bash "$(dirname "${BASH_SOURCE[0]}")/run_matching.sh" \
+exec bash "$(dirname "${BASH_SOURCE[0]}")/run_property_matching.sh" \
     --state "${STATE}" \
     --data "${DATA}" \
     --python "${PYTHON}" \

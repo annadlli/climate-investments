@@ -32,7 +32,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attom-nfhl", required=True)
     parser.add_argument("--builty-attom", help="State Builty--ATTOM file; omit if the state has none.")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--diagnostics", required=True)
     return parser.parse_args()
 
 
@@ -80,25 +79,7 @@ def main() -> None:
 
     # write the enriched universe out
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
     result.to_parquet(out, index=False)
-
-    # a one-line summary so we can see at a glance how many properties picked up a permit
-    diagnostics = pd.DataFrame([{
-        "attom_master_rows": len(attom),
-        "attom_rows_after_merge": len(result),
-        "builty_attomids": len(builty),
-        "attom_rows_with_builty": int(result["builty_elevated"].sum()),
-        # Builty ATTOMIDs absent from the master are dropped by the left join.
-        # A non-zero count here means permits are being lost before assignment.
-        "builty_attomids_unmatched": int(len(builty) - result["builty_elevated"].sum()),
-        "unmatched_attom_rows_retained": int(result["builty_elevated"].eq(0).sum()),
-        "merge_status_1_attom_only": int(result["builty_merge_status"].eq(1).sum()),
-        "merge_status_3_attom_builty": int(result["builty_merge_status"].eq(3).sum()),
-    }])
-    Path(args.diagnostics).parent.mkdir(parents=True, exist_ok=True)
-    diagnostics.to_csv(args.diagnostics, index=False)
-    print(diagnostics.to_string(index=False))
     print(f"Saved {out}")
 
 

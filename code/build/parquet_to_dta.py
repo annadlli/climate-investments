@@ -158,7 +158,6 @@ def main() -> None:
     args = parse_args()
     in_path = Path(args.input).expanduser()
     out_path = Path(args.output).expanduser()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     if args.columns:
         select_sql = ", ".join(quote_ident(c) for c in args.columns)

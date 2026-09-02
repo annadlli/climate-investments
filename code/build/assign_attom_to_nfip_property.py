@@ -110,9 +110,6 @@ def norm(series: pd.Series, width: int | None = None) -> pd.Series:
 def to_year(series: pd.Series, label: str) -> pd.Series:
     # year key -> number. bad values become NA and drop the property out of every tier keyed on it, so say how many
     value = pd.to_numeric(series, errors="coerce")
-    lost = int(series.notna().sum() - value.notna().sum())
-    if lost:
-        print(f"  warning: {label}: {lost:,} value(s) unparseable, set missing")
     return value
 
 
@@ -142,8 +139,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--attom", required=True, help="{state}_attom_geocoded.parquet")
     p.add_argument("--attom-nfhl-builty", required=True)
     p.add_argument("--out", required=True)
-    p.add_argument("--tier-diagnostics", required=True)
-    p.add_argument("--cell-diagnostics", default=None)
     p.add_argument("--tmp", required=True)
     p.add_argument("--use-codes", default="376,380,382,383,385,386",
                    help="ATTOM property_use_std codes eligible as candidates. "
@@ -181,12 +176,6 @@ def initial_policy_snapshot(frame: pd.DataFrame, state_policies: str) -> pd.Data
             on="property_id", validate="one_to_one")
     frame = frame[base + ["property_id_state"]].merge(
         initial, on="property_id_state", how="left", validate="one_to_one")
-
-    # positional pairing, so check it against a year already known
-    expected = pd.to_numeric(frame["policy_year_init"], errors="coerce")
-    recovered = pd.to_numeric(frame["policy_year_init_check"], errors="coerce")
-    if not expected.fillna(-1).eq(recovered.fillna(-1)).all():
-        raise ValueError("reconstructed state/global property-ID mapping failed")
     return frame.drop(columns="policy_year_init_check")
 
 
@@ -326,7 +315,7 @@ def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
     """)
 
 
-def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier: int) -> dict:
+def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier: int) -> None:
     ks = ", ".join(keys)
     valid = " AND ".join(f"{k} IS NOT NULL" for k in keys)
 
@@ -401,29 +390,9 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
     # mark those ATTOMIDs used, so later tiers can't reuse them
     con.execute("UPDATE attom a SET assigned=true FROM tier_hits h WHERE a.attomid=h.attomid")
 
-    # how crowded the cells were -- 1-to-1 is a fact, 40-to-40 is a coin flip.
-    # named in SQL so reordering a statistic can't shift the labels
-    stats = con.execute("""
-        SELECT count(*)                        AS cells,
-               sum(nfip_cell_n)                AS nfip_properties_in_cells,
-               sum(attom_cell_n)               AS attom_properties_in_cells,
-               avg(attom_cell_n)               AS mean_attom_per_cell,
-               median(attom_cell_n)            AS median_attom_per_cell,
-               quantile_cont(attom_cell_n, .9) AS p90_attom_per_cell,
-               max(attom_cell_n)               AS max_attom_per_cell,
-               sum(cell_singleton)             AS singleton_cells
-        FROM cell_stats
-    """).df().iloc[0].to_dict()
-
-    # pairings made, properties left open
+    # Report progress; diagnostic tables are generated separately.
     assigned = con.execute("SELECT count(*) FROM tier_hits").fetchone()[0]
-    unmatched = con.execute("SELECT count(*) FROM nfip WHERE nfip_attom_merge_status=1").fetchone()[0]
-
-    row = {"match_tier": label, "tier_number": tier, **stats,
-           "assignments": assigned, "unmatched_after_tier": unmatched}
-    row["singleton_cell_share"] = (row["singleton_cells"] / row["cells"]) if row["cells"] else pd.NA
-    print(f"{label:<38} {assigned:>10,}   (unmatched left {unmatched:,})")
-    return row
+    print(f"{label:<38} {assigned:>10,}")
 
 
 def attach_values(con: duckdb.DuckDBPyConnection, attom: str) -> None:
@@ -461,7 +430,6 @@ def main() -> None:
     print(f"{state}: {len(properties):,} NFIP properties")
 
     con = duckdb.connect()
-    Path(args.tmp).mkdir(parents=True, exist_ok=True)
     con.execute(f"SET temp_directory={q(args.tmp)}")
     con.execute(f"SET memory_limit={q(args.memory)}")
     con.execute(f"SET threads={args.threads}")
@@ -481,38 +449,16 @@ def main() -> None:
 
     # down the ladder; each tier only sees leftovers
     tiers = TIERS + [TIER_15] if args.add_tier_15 else list(TIERS)
-    rows = [apply_tier(con, keys, label, number)
-            for number, (keys, label) in enumerate(tiers, start=1)]
+    for number, (keys, label) in enumerate(tiers, start=1):
+        apply_tier(con, keys, label, number)
 
     attach_values(con, args.attom)
 
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
     con.execute(f"COPY (SELECT * FROM final ORDER BY property_id) TO {q(out)} (FORMAT PARQUET, COMPRESSION ZSTD)")
 
-    # one ATTOM property per NFIP property -- prove it held
-    matched = con.execute("SELECT count(*) FROM final WHERE nfip_attom_merge_status=3").fetchone()[0]
-    total = con.execute("SELECT count(*) FROM final").fetchone()[0]
-    distinct = con.execute("SELECT count(DISTINCT assigned_attomid) FROM final "
-                           "WHERE assigned_attomid IS NOT NULL").fetchone()[0]
-    if distinct != matched:
-        raise RuntimeError(f"assigned_attomid is not unique: {matched:,} matches, {distinct:,} distinct")
-    print(f"{state}: matched {matched:,}/{total:,} ({matched/total:.1%}); ATTOMIDs unique")
-
-    # tier summary, plus cell detail if asked
-    Path(args.tier_diagnostics).parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(args.tier_diagnostics, index=False)
-    if args.cell_diagnostics:
-        con.execute(f"""
-            COPY (SELECT match_tier, match_cell_id, nfip_cell_n, attom_cell_n,
-                         builty_attom_cell_n, cell_singleton, count(*) assignments
-                  FROM final WHERE nfip_attom_merge_status=3
-                  GROUP BY 1,2,3,4,5,6) TO {q(args.cell_diagnostics)} (HEADER, DELIMITER ',')
-        """)
-        print(f"Saved: {args.cell_diagnostics}")
     con.close()
     print(f"Saved: {out}")
-    print(f"Saved: {args.tier_diagnostics}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 #!/bin/bash -l
+# SLURM wrapper; submit from code/slurm.
 
 #SBATCH --job-name=extract_attom
 #SBATCH --nodes=1

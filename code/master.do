@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-08-27
+Date: 2026-09-02
 
 Description: Runs the data-construction pipeline for the climate-investments
     project.
@@ -62,18 +62,10 @@ local compile                  = 0 // compile property-level analysis dataset
 local complete                 = 1 // prepares final analysis dataset
 
 
-local compile2                 = 0 // PRELIMINARY: attach ATTOM values + Builty via Anna's Wagner links
-
-// iii) Build
+// iii) Build: finalized Builty -> ATTOM -> NFIP property pipeline
 local geocode_attom            = 0 // extract ATTOM addresses + Census geocode to block groups
 local run_matching             = 0 // finalized 5-step Builty/ATTOM/NFIP matching, per state
-local policy_consensus         = 0 // alternate: policy-year links, then stable property consensus
-local compile_stable_property  = 0 // matching links -> labeled diagnostic + clean analysis files
-
-
-local attom_values             = 0 //generate attom state summary files
-local nfip_attom_fma           = 0 // build property-level analysis dataset state level
-local compile_property         = 0 // compile property-level analysis datasets
+local compile_stable_property  = 0 // matching links -> clean analysis file
 
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
@@ -134,67 +126,34 @@ if `compile' == 1 {
 if `complete' == 1 {
     do "`code'/build/complete.do" "`data'"
 }
-if `compile2' == 1 {
-    do "`code'/build/compile2.do" "`data'" "`states'"
-}
 
-// iii) Build: Builty elevation permits -> ATTOM property values
 if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resume-safe
     foreach state of local states {
+        local st = lower("`state'")
+        shell mkdir -p "`data'/build/attom_geocode/`st'_addr/chunks" ///
+            "`data'/build/attom_geocode/`st'_addr/results" ///
+            "`data'/build/attom_geocode/`st'_addr/duckdb_tmp"
         shell `python' "`code'/build/geocode_attom.py" --data "`data'" --state "`state'"
     }
 }
-* Added 2026-08-25 (Anna), replacing the four per-step blocks above.
 if `run_matching' == 1 {
-    * Finalized five-step matching chain, one state at a time: ATTOM geocoded
-    * panel -> NFHL join -> Builty address match against raw ATTOM -> Builty
-    * flags onto the ATTOM universe -> one ATTOM property assigned per NFIP
-    * property. run_matching.sh holds the step order and the flags, and is the
-    * same file the cluster wrapper (run_matching_slurm.sh) runs.
-    *
-    * Each step skips when its output already exists, so a rerun is cheap and an
-    * interrupted state resumes. Step 1 needs the cached Census geocoder results,
-    * which live on TORCH rather than in Dropbox: locally that step is skipped
-    * and the synced panel is used.
-    *
-    * ATTOM is large, so a big state takes hours here. On the cluster, submit
-    * run_matching_slurm.sh instead of this serial loop.
+    shell mkdir -p "`data'/build/nfip_attom_pipeline_v2/geocoded" ///
+        "`data'/build/nfip_attom_pipeline_v2/nfhl_matches" ///
+        "`data'/build/nfip_attom_pipeline_v2/builty_attom" ///
+        "`data'/build/nfip_attom_pipeline_v2/attom_nfhl_builty" ///
+        "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property"
     foreach state of local states {
-        shell bash "`code'/build/run_matching.sh" ///
+        local st = lower("`state'")
+        shell mkdir -p "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/geocoded" ///
+            "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/builty" ///
+            "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/assignment"
+        shell bash "`code'/slurm/run_property_matching.sh" ///
             --state "`state'" --data "`data'" --python "`python'" ///
             --memory "24GB" --threads 4
     }
 }
-
-if `policy_consensus' == 1 {
-    * Alternate design: policy year enters every Wagner-style matching cell.
-    * Repeated assignments become evidence for one stable property-level link.
-    capture mkdir "`data'/build/nfip_attom_policy_year_v2"
-    capture mkdir "`data'/tmp/nfip_attom_policy_year_v2"
-    foreach state of local states {
-        local st = lower("`state'")
-        capture mkdir "`data'/tmp/nfip_attom_policy_year_v2/`st'"
-        shell `python' "`code'/build/alternates/assign_attom_to_nfip.py" ///
-            --state "`state'" ///
-            --nfip "`data'/clean/nfip_policies_state/`st'.dta" ///
-            --attom "`data'/build/nfip_attom_pipeline_v2/geocoded/`st'_attom_geocoded.parquet" ///
-            --attom-nfhl-builty "`data'/build/nfip_attom_pipeline_v2/attom_nfhl_builty/`st'_attom_nfhl_builty.parquet" ///
-            --use-codes 376,380,382,383,385,386 ///
-            --out "`data'/build/nfip_attom_policy_year_v2/`st'_nfip_attom_policy_year.parquet" ///
-            --tier-diagnostics "`data'/build/nfip_attom_policy_year_v2/`st'_tier_diagnostics.csv" ///
-            --cell-diagnostics "`data'/build/nfip_attom_policy_year_v2/`st'_cell_diagnostics.csv" ///
-            --tmp "`data'/tmp/nfip_attom_policy_year_v2/`st'"
-    }
-    shell `python' "`code'/build/alternates/export_policy_links.py" ///
-        --data "`data'" --states "`states'"
-    do "`code'/build/alternates/collapse_nfip_attom_to_property.do" "`data'" "`states'"
-    do "`code'/build/alternates/compile_nfip_attom_policy_consensus.do" "`data'"
-}
-
 if `compile_stable_property' == 1 {
-    * Finalize the original stable-property V2 outputs. Convert each state
-    * parquet separately so the national file never has to live in Python RAM.
-    capture mkdir "`data'/build/nfip_attom_property"
+    shell mkdir -p "`data'/build/nfip_attom_property"
     foreach state of local states {
         local st = lower("`state'")
         shell `python' "`code'/build/parquet_to_dta.py" ///
@@ -202,18 +161,4 @@ if `compile_stable_property' == 1 {
             --output "`data'/build/nfip_attom_property/`st'_nfip_attom_property.dta"
     }
     do "`code'/build/compile_nfip_property_attom.do" "`data'" "`states'"
-}
-
-if `attom_values' == 1 { //run with TORCH due to size, not locally
-    foreach state of local states {
-        shell `python' "`code'/build/alternates/attom_value_cells.py" --data "`data'" --state "`state'"
-    }
-}
-if `nfip_attom_fma' == 1 {
-    foreach state of local states {
-        do "`code'/build/alternates/property_panel.do" "`data'" "`state'"
-    }
-}
-if `compile_property' == 1 {
-    do "`code'/build/alternates/compile_nfip_attom_fma.do" "`data'" "`states'"
 }

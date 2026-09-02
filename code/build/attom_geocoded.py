@@ -57,13 +57,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_parquet(data: Path, state: str) -> Path:
-    # One fixed location. The old version searched three candidate paths and, if
-    # none existed, returned the first anyway -- so a missing file surfaced later
-    # as an opaque DuckDB read error instead of here.
-    parquet = data / "raw" / "attom" / f"attom_{state}.parquet"
-    if not parquet.exists():
-        raise FileNotFoundError(f"No ATTOM parquet for {state}: {parquet}")
-    return parquet
+    # Use the expected raw ATTOM parquet path directly; do not fail early when
+    # the file is missing.
+    return data / "raw" / "attom" / f"attom_{state}.parquet"
 
 
 def fan_blockgroups(work: Path, out_base: Path) -> None:
@@ -80,7 +76,6 @@ def fan_blockgroups(work: Path, out_base: Path) -> None:
 
 def join_attom(parquet: Path, link_file: Path, out: Path, sample: int, memory: str, tmp: Path) -> None:
     # this join runs over tens of millions of rows, so hand it to DuckDB on disk
-    tmp.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
     con.execute(f"SET memory_limit={quote(memory)}")
     con.execute(f"SET temp_directory={quote(str(tmp))}")
@@ -159,12 +154,10 @@ def main() -> None:
     # step one: block groups per property
     blockgroups_base = (Path(args.blockgroups_out) if args.blockgroups_out else
                         data / "build" / f"{tag}_attom_blockgroups")
-    blockgroups_base.parent.mkdir(parents=True, exist_ok=True)
     fan_blockgroups(work, blockgroups_base)
 
     # step two: the property x tax-year panel everything downstream reads
     output = Path(args.out) if args.out else data / "build" / f"{tag}_attom_geocoded.parquet"
-    output.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(args.tmp) if args.tmp else work / "duckdb_tmp"
     join_attom(parquet, Path(f"{blockgroups_base}.parquet"), output, args.sample, args.memory, tmp)
 

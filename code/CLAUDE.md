@@ -81,6 +81,7 @@ code/
 ├── build/                    prep_fma, prep_nfip_policies, compile + alternates/attom_value_cells.py
 │   └── archive/              Gen-1 merge/panel scripts + nfip_build.do + deprioritized Builty chain
 ├── descriptives/             descriptive scripts (Gen-1 in descriptives/archive/, await rebuild)
+├── slurm/                    shared cluster wrappers and reusable shell drivers
 └── analysis/                 regressions, RD, identification (Gen-1 in analysis/archive/, await rebuild)
 
 output/                       saved .gph graphs — repo-root sibling of code/ (artifacts, not code)

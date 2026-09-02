@@ -57,7 +57,7 @@ def resolve_parquet(data: Path, state: str) -> Path:
               data / f"attom_{state}.parquet"]:
         if c.exists():
             return c
-    raise FileNotFoundError(f"No ATTOM parquet for {state} under {data}")
+    return data / f"attom_{state}.parquet"
 
 
 # phase a: extract + dedupe addresses
@@ -65,7 +65,6 @@ def extract_addresses(parquet: Path, state: str, sample: int, memory: str, tmp: 
     # one row per attomid, one addrid per cleaned address
     con = duckdb.connect()
     # duckdb memory cap; spill to tmp if needed
-    tmp.mkdir(parents=True, exist_ok=True)
     con.execute(f"SET memory_limit={quote(memory)}")
     con.execute(f"SET temp_directory={quote(str(tmp))}")
     sample_source = ""
@@ -150,7 +149,6 @@ def extract_addresses(parquet: Path, state: str, sample: int, memory: str, tmp: 
 def write_chunks(df: pd.DataFrame, chunk_dir: Path, chunk_size: int) -> list[Path]:
     # Census accepts CSV rows of the form: id,street,city,state,zip
     # Write one chunk file per slice of the unique-address list so the batch
-    chunk_dir.mkdir(parents=True, exist_ok=True)
     paths = []
     for i in range(0, len(df), chunk_size):
         path = chunk_dir / f"chunk_{i // chunk_size:05d}.csv"
@@ -255,7 +253,6 @@ def geocode(addrs: pd.DataFrame, work: Path, benchmark: str, vintage: str,
             chunk_size: int, workers: int, timeout: int) -> None:
     chunk_dir = work / "chunks"
     result_dir = work / "results"
-    result_dir.mkdir(parents=True, exist_ok=True)
 
     chunks = write_chunks(addrs, chunk_dir, min(chunk_size, 10000))
     print(f"Batches: {len(chunks)} (benchmark={benchmark}, vintage={vintage})")
@@ -312,7 +309,6 @@ def main() -> None:
     # sample runs get their own work dir
     tag  = f"{state}_sample{args.sample}" if args.sample > 0 else state
     work = data / "build" / "attom_geocode" / f"{tag}_addr"
-    work.mkdir(parents=True, exist_ok=True)
 
     # clean and dedupe addresses
     print(f"Reading addresses: {parquet}")

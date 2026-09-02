@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", required=True, help="Output parquet path.")
     return parser.parse_args()
 
-
+#kept as state by state differs
 def resolve_nfhl(path: Path, state: str) -> Path:
     # either we were handed the map file directly, or we go find it under the state's folder
     if path.suffix.lower() in {".gdb", ".gpkg"}:
@@ -70,7 +70,7 @@ def find_layer(dataset: Path, expected: str) -> str | None:
 
 
 def resolve_points(points: str, state: str) -> Path:
-    # The geocoded panel from step 1 is the only source of coordinates here as ATTOM doesn't have good coordinates (mostly missing). run_matching.sh owns the layout.
+    # The geocoded panel from step 1 is the only source of coordinates here as ATTOM doesn't have good coordinates (mostly missing). run_property_matching.sh owns the layout.
     path = Path(points)
     if not path.exists():
         raise FileNotFoundError(f"No geocoded ATTOM panel for {state}: {path}")
@@ -228,27 +228,8 @@ def main() -> None:
 
     # write the property-level flood file
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
     result.to_parquet(out, index=False)
-
-    # summarise how the join went so coverage problems are visible straight away
-    total = len(result)
-    counts = [
-        ("ATTOM properties", total),
-        ("valid accepted coordinates", int(valid.sum())),
-        ("matched to flood polygon", int(result["nfhl_flood_matched"].sum())),
-        ("matched to community polygon", int(result["nfhl_community_matched"].sum())),
-        ("multiple flood candidates", int(result["flood_candidate_count"].fillna(0).gt(1).sum())),
-        ("multiple community candidates", int(result["community_candidate_count"].fillna(0).gt(1).sum())),
-    ]
-    diagnostics = pd.DataFrame([
-        {"metric": metric, "count": count, "percent": round(100 * count / total, 2) if total else 0.0}
-        for metric, count in counts])
-    diagnostics_path = out.with_name(f"{out.stem}_diagnostics.csv")
-    diagnostics.to_csv(diagnostics_path, index=False)
-    print(diagnostics.to_string(index=False))
     print(f"Saved: {out}")
-    print(f"Saved: {diagnostics_path}")
 
 
 if __name__ == "__main__":
