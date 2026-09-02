@@ -12,18 +12,6 @@ clear all
 set more off
 
 * -----------------------------------------------------------------------------
-* Locals
-* -----------------------------------------------------------------------------
-
-// States 
-local states "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
-
-// Dewey/ATTOM acquisition inputs. The manifest is private because it contains
-// licensed Dewey endpoint URLs. extract_attom requires an existing run id.
-local dewey_manifest "`code'/../anna_private/dewey_manifest_wagner_template.csv"
-local dewey_run_id ""
-
-* -----------------------------------------------------------------------------
 * Paths 
 * -----------------------------------------------------------------------------
 
@@ -37,6 +25,18 @@ local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
 /* local code "/Users/anna/Desktop/climate-investments/code"
 local data "/Users/anna/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
 local python "/opt/anaconda3/bin/python" */
+
+* -----------------------------------------------------------------------------
+* Locals
+* -----------------------------------------------------------------------------
+
+// States 
+local states "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
+
+// Dewey/ATTOM acquisition inputs. The manifest is private because it contains
+// licensed Dewey endpoint URLs. extract_attom requires an existing run id.
+local dewey_manifest "`code'/../anna_private/dewey_manifest_wagner_template.csv"
+local dewey_run_id ""
 
 * -----------------------------------------------------------------------------
 * Section 1: Set switches 
@@ -63,9 +63,17 @@ local complete                 = 1 // prepares final analysis dataset
 
 
 // iii) Build: finalized Builty -> ATTOM -> NFIP property pipeline
-local geocode_attom            = 0 // extract ATTOM addresses + Census geocode to block groups
-local run_matching             = 0 // finalized 5-step Builty/ATTOM/NFIP matching, per state
-local compile_stable_property  = 0 // matching links -> clean analysis file
+*local geocode_attom            = 0 // extract ATTOM addresses + Census geocode to block groups
+
+*local run_property_matching = 0 //  run_property_matching.sh runs all of the torch scripts except geocode_attom.
+    *local attom_geocoded            =0 // attach Census geocode to the full ATTOM property records
+    *local attom_nfhl                 =0// spatial join geocoded-attom to NFHL flood zones (Wagner)
+    *local attom_onto_permits        =0 //put an ATTOM property value onto every Builty elevation permit
+    *local elev_flag_onto_attom     =0 // merge Builty elevation flags onto the geocoded-flood zone- attom universe
+    *local assign_attom_to_nfip_property = 0 //merge ATTOM with NFIP using the matching tiers
+
+local parquet_dta = 0 //convert the ATTOM-NFIP parquet file to Stata
+local final_analysis = 0 //merge results onto analysis.dta to create final two versions of the dataset
 
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
@@ -127,6 +135,7 @@ if `complete' == 1 {
     do "`code'/build/complete.do" "`data'"
 }
 
+/*
 if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resume-safe
     foreach state of local states {
         local st = lower("`state'")
@@ -136,29 +145,44 @@ if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resum
         shell `python' "`code'/build/geocode_attom.py" --data "`data'" --state "`state'"
     }
 }
-if `run_matching' == 1 {
-    shell mkdir -p "`data'/build/nfip_attom_pipeline_v2/geocoded" ///
+
+if `run_property_matching' == 1 {
+    shell mkdir -p ///
+        "`data'/build/nfip_attom_pipeline_v2/geocoded" ///
         "`data'/build/nfip_attom_pipeline_v2/nfhl_matches" ///
         "`data'/build/nfip_attom_pipeline_v2/builty_attom" ///
         "`data'/build/nfip_attom_pipeline_v2/elev_flag_onto_attom" ///
         "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property"
+
     foreach state of local states {
         local st = lower("`state'")
-        shell mkdir -p "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/geocoded" ///
+
+        shell mkdir -p ///
+            "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/geocoded" ///
             "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/builty" ///
             "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/assignment"
+
         shell bash "`code'/slurm/run_property_matching.sh" ///
-            --state "`state'" --data "`data'" --python "`python'" ///
-            --memory "24GB" --threads 4
+            --state "`state'" ///
+            --data "`data'" ///
+            --python "`python'" ///
+            --memory "24GB" ///
+            --threads 4
     }
 }
-if `compile_stable_property' == 1 {
+*/
+if `parquet_dta' == 1 {
     shell mkdir -p "`data'/build/nfip_attom_property"
+
     foreach state of local states {
         local st = lower("`state'")
-        shell `python' "`code'/build/finalize_nfip_attom_property.py" ///
+
+        shell `python' "`code'/build/parquet_dta.py" ///
             --input "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet" ///
             --output "`data'/build/nfip_attom_property/`st'_nfip_attom_property.dta"
     }
-    do "`code'/build/compile_nfip_property_attom.do" "`data'" "`states'"
+}
+
+if `final_analysis' == 1 {
+    do "`code'/build/final_analysis.do" "`data'" "`states'"
 }
