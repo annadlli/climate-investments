@@ -140,7 +140,7 @@ if `run_matching' == 1 {
     shell mkdir -p "`data'/build/nfip_attom_pipeline_v2/geocoded" ///
         "`data'/build/nfip_attom_pipeline_v2/nfhl_matches" ///
         "`data'/build/nfip_attom_pipeline_v2/builty_attom" ///
-        "`data'/build/nfip_attom_pipeline_v2/attom_nfhl_builty" ///
+        "`data'/build/nfip_attom_pipeline_v2/elev_flag_onto_attom" ///
         "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property"
     foreach state of local states {
         local st = lower("`state'")
