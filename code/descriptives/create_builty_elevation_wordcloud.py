@@ -48,7 +48,7 @@ ELEVATION = r"elevat|raise|raising|raised|jack|lift|bfe|base flood|freeboard|pil
 #some distinct colors to use
 COLORS = ("#17365D", "#2F75B5", "#00A6A6", "#70AD47", "#ED7D31", "#8064A2")
 
-WIDTH, HEIGHT, TOP = 1800, 1100, 145
+WIDTH, HEIGHT, TOP = 1800, 1100, 20
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,18 +78,9 @@ def word_counts(text: pd.Series, max_words: int) -> list[tuple[str, int]]:
     return counts.most_common(max_words)
 
 # Draws the picture. Biggest words first, each one dropped into whatever gap is still free, shrinking it if nothing fits.
-def draw_cloud(ranked, n_rows: int, n_elevated: int, output: Path) -> None:
-    # Blank white page, then the title block across the top.
+def draw_cloud(ranked, output: Path) -> None:
+    # Blank white page with a small outer margin.
     image = Image.new("RGB", (WIDTH, HEIGHT), "white")
-    header = ImageDraw.Draw(image)
-    header.text((55, 30), "Language in Builty elevation descriptions",
-                font=font(42, bold=True), fill="#17365D")
-    share = n_elevated / n_rows if n_rows else 0
-    subtitle = (
-        f"{n_rows:,} properties; {n_elevated:,} descriptions ({share:.1%}) "
-        "contain explicit elevation language"
-    )
-    header.text((58, 88), subtitle, font=font(24), fill="#595959")
 
     # A map of the page, one cell per pixel: True once something is drawn there.
     # Only covers below the title, so words can never run into the header.
@@ -160,7 +151,7 @@ def main() -> None:
     n_elevated = int(text.str.lower().str.contains(ELEVATION, regex=True).sum())
 
     ranked = word_counts(text, args.max_words)
-    draw_cloud(ranked, len(frame), n_elevated, Path(args.output))
+    draw_cloud(ranked, Path(args.output))
 
     print(f"Saved {args.output}")
     print(f"Elevation language: {n_elevated:,}/{len(frame):,} ({n_elevated / len(frame):.1%})")
