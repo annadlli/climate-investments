@@ -19,13 +19,13 @@ set more off
 local code "/Users/vendelasolvindnorman/Documents/Econ_PhD/Projects/climate-investments/code"
 local data "/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
 local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
-
+local output "`code'/../output"
 
 * --- Anna ---
 /* local code "/Users/anna/Desktop/climate-investments/code"
 local data "/Users/anna/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
 local python "/opt/anaconda3/bin/python" */
-
+local output "`code'/../output"
 * -----------------------------------------------------------------------------
 * Locals
 * -----------------------------------------------------------------------------
@@ -75,6 +75,9 @@ local complete                 = 1 // prepares final analysis dataset
 local parquet_dta = 0 //convert the ATTOM-NFIP parquet file to Stata
 local final_analysis = 0 //merge results onto analysis.dta to create final two versions of the dataset
 
+
+// iv) Descriptives
+local summary_stats = 0 //run the summary descriptives do file that produces an excel file
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
 * -----------------------------------------------------------------------------
@@ -186,3 +189,9 @@ if `parquet_dta' == 1 {
 if `final_analysis' == 1 {
     do "`code'/build/final_analysis.do" "`data'" "`states'"
 }
+
+if `summary_stats' == 1 {
+    shell mkdir -p "`output'/descriptives"
+    do "`code'/descriptives/summary_table.do" "`data'" "`output'"
+}
+
