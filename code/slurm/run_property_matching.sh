@@ -74,7 +74,7 @@ GEOCODED="${OUT_ROOT}/geocoded/${ST}_attom_geocoded.parquet"
 BLOCKGROUPS="${OUT_ROOT}/geocoded/${ST}_attom_blockgroups"
 NFHL="${OUT_ROOT}/nfhl_matches/${ST}_attom_nfhl.parquet"
 BUILTY="${OUT_ROOT}/builty_attom/${ST}_attom_permits.parquet"
-ENRICHED="${OUT_ROOT}/attom_nfhl_builty/${ST}_attom_nfhl_builty.parquet"
+ENRICHED="${OUT_ROOT}/elev_flag_onto_attom/${ST}_attom_nfhl_builty.parquet"
 FINAL="${OUT_ROOT}/nfip_attom_property/${ST}_nfip_attom_property.parquet"
 
 
