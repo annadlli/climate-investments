@@ -159,7 +159,7 @@ fi
 if step_needed "4/5" "${ENRICHED}"; then
     require "${NFHL}" "${BUILTY}"
     echo "[4/5] Left merge Builty onto the ATTOM--NFHL universe"
-    "${PYTHON}" "${CODE}/attom_nfhl_builty.py" \
+    "${PYTHON}" "${CODE}/elev_flag_onto_attom.py" \
         --attom-nfhl "${NFHL}" --builty-attom "${BUILTY}" --out "${ENRICHED}"
 fi
 
