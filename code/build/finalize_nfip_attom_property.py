@@ -2,11 +2,11 @@
 Authors: Anna Li
 Date: 2026-08-19
 
-Convert a parquet file to Stata .dta format.
+Convert a finalized state NFIP--ATTOM property-link parquet to Stata format.
 
-This is a small utility for one-off inspection/conversion jobs, for example:
+This is the conversion step used before compile_nfip_property_attom.do:
 
-    python code/build/parquet_to_dta.py \
+    python code/build/finalize_nfip_attom_property.py \
         --input /path/to/vt.parquet \
         --output data/build/vt.dta
 

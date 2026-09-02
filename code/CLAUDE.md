@@ -18,8 +18,9 @@ flood risk. Stata (`.do`) + Python (`.py`, `.ipynb`). Econ PhD work; collaborato
 
 **Scope:** NFIP policies and FEMA FMA run over the 20 sample states (`local states` in `master.do`).
 ATTOM now covers all 20 too (value cells for 20 states; Census-geocoded parquets for 8; property-Wagner
-links for 18 — ME/MS pending). The binding constraint is the **grain** of the ATTOM/Builty link into the
-analysis set (currently cell-level via `compile2.do`), not state coverage.
+links for 18 — ME/MS pending). The active pipeline builds stable NFIP-property identifiers, links ATTOM
+to those properties through the Wagner cells, and finalizes the property-level analysis input;
+the superseded `compile2.do` path is archived.
 
 ## Code and data are decoupled
 
@@ -50,6 +51,9 @@ clean/clean_nfip_multiple_loss.do -> clean/nfip_multiple_loss.dta
 build/prep_fma.do                 -> clean/fma_zip.dta + clean/fma_county.dta
 build/prep_nfip_policies.do       -> clean/nfip_policies_property.dta    (policy-year -> property)
 build/compile.do                  -> analysis/analysis.dta               (property-level analysis set)
+slurm/run_property_matching.sh    -> ATTOM geocode/NFHL/Builty/property matching jobs
+build/finalize_nfip_attom_property.py -> final matched property dataset
+build/compile_nfip_property_attom.do  -> property-level Stata output
 build/alternates/attom_value_cells.py -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
                                      (.sh = Torch/SLURM wrapper)
 ```
@@ -78,7 +82,7 @@ code/
 ├── master.do                 local code/data roots, args-pass + 0/1 switches; clean + build
 ├── clean/                    import_dewey.py (acquisition) + extract_* (national -> per-state) + clean_* (raw -> clean)
 │   └── archive/              dropped sources (clean_nri/npr, nri_prep, clean_fma_projects) + torch_work/ (NYU cluster acquisition)
-├── build/                    prep_fma, prep_nfip_policies, compile + alternates/attom_value_cells.py
+├── build/                    active construction scripts called by master.do or the SLURM driver
 │   └── archive/              Gen-1 merge/panel scripts + nfip_build.do + deprioritized Builty chain
 ├── descriptives/             descriptive scripts (Gen-1 in descriptives/archive/, await rebuild)
 ├── slurm/                    shared cluster wrappers and reusable shell drivers

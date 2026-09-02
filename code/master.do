@@ -156,7 +156,7 @@ if `compile_stable_property' == 1 {
     shell mkdir -p "`data'/build/nfip_attom_property"
     foreach state of local states {
         local st = lower("`state'")
-        shell `python' "`code'/build/parquet_to_dta.py" ///
+        shell `python' "`code'/build/finalize_nfip_attom_property.py" ///
             --input "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet" ///
             --output "`data'/build/nfip_attom_property/`st'_nfip_attom_property.dta"
     }

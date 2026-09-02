@@ -17,7 +17,7 @@ local links_dir "`data'/build/nfip_attom_property"
 * -----------------------------------------------------------------------------
 * 1. Append the state links
 * -----------------------------------------------------------------------------
-* one .dta per state, converted from parquet by parquet_to_dta.py
+* one .dta per state, converted by finalize_nfip_attom_property.py
 tempfile links
 local first : word 1 of `states'
 local first_lower = lower("`first'")
