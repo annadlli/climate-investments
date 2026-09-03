@@ -42,13 +42,14 @@ keep property_id originalconstructiondate censusblockgroupfips originalnbdate st
 
  * Rename
 ren (reportedzipcode yearofloss netbuildingpaymentamount netcontentspaymentamount ///
-     totalbuildinginsurancecoverage totalcontentsinsurancecoverage buildingpropertyvalue) ///
+     totalbuildinginsurancecoverage totalcontentsinsurancecoverage buildingpropertyvalue ///
+     ratedfloodzone) ///
     (zipcode year_loss claim_building claim_contents coverage_building coverage_contents ///
-     property_val_nfip)
+     property_val_nfip flood_zone)
 
 * Destring 
 ds state zipcode censusblockgroupfips dateofloss originalconstructiondate originalnbdate ///
-    ratedfloodzone buildingdeductiblecode, not
+    flood_zone buildingdeductiblecode, not
 destring `r(varlist)', replace
 
 * Convert merge variables to date format
@@ -114,23 +115,23 @@ label var state                    "State"
 label var zipcode                  "ZIP code"
 label var censusblockgroupfips     "Census block group"
 label var property_id              "Approximate property ID"
-label var ratedfloodzone           "NFIP rated flood zone"
+label var flood_zone               "NFIP rated flood zone"
 label var year_loss                "Year of loss"
-label var claim_building           "Net amount paid on building claim"
-label var claim_contents           "Net amount paid on contents claim"
-label var claim_cb                 "Total net amount paid, building + contents"
-label var property_val_nfip        "Building property value (NFIP)"
+label var claim_building           "Net amount paid on building claim (2023 $)"
+label var claim_contents           "Net amount paid on contents claim (2023 $)"
+label var claim_cb                 "Total net amount paid, building + contents (2023 $)"
+label var property_val_nfip        "Building property value (NFIP, 2023 $)"
 label var coverage_building        "Total building insurance coverage"
 label var coverage_contents        "Total contents insurance coverage"
 label var originalconstructiondate "Original construction date"
 label var originalnbdate           "Original new-business policy date"
 
 * Save data
-order state zipcode censusblockgroupfips property_id ratedfloodzone year_loss claim*
+order state zipcode censusblockgroupfips property_id flood_zone year_loss claim*
 order originalconstructiondate originalnbdate, last
 sort state zipcode censusblockgroupfips property_id year_loss 
 compress
-save "`data'/clean/nfip_claims_property_year.dta", replace
+save "`data'/clean/nfip_claims_panel.dta", replace
 
 * -----------------------------------------------------------------------------
 * Section 3: Collapse to property-level data & save
@@ -142,7 +143,7 @@ collapse (sum) claim_cb ///
 
 * Label variables
 label var property_id              "Approximate property ID"
-label var claim_cb                 "Total net amount paid, all loss years"
+label var claim_cb                 "Total net amount paid, all loss years (2023 $)"
 label var originalconstructiondate "Original construction date"
 label var censusblockgroupfips     "Census block group"
 label var originalnbdate           "Original new-business policy date"

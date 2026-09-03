@@ -20,9 +20,9 @@ drop state primaryresidenceindicator communityname latitude longitude ///
 
 * Rename 
 ren (stateabbreviation fipscountycode communityidnumber censusblockgroup ///
-    nfiprl nfipsrl fmarl fmasrl reportedcity) ///
+    nfiprl nfipsrl fmarl fmasrl reportedcity floodzone) ///
     (state countycode community censusblockgroupfips nfip_rl nfip_srl ///
-    fma_rl fma_srl city)
+    fma_rl fma_srl city flood_zone)
 
 * Destring 
 ds countycode zipcode community censusblockgroupfips, not
@@ -66,7 +66,7 @@ label var city                     "City"
 label var originalnbdate           "Original new-business policy date"
 label var originalconstructiondate "Original construction date"
 label var mostrecentdateofloss     "Most recent date of loss"
-label var floodzone                "FEMA flood zone"
+label var flood_zone               "FEMA flood zone"
 label var insuredindicator         "Currently insured (NFIP)"
 label var mitigatedindicator       "Property mitigated indicator"
 label var totallosses              "Total number of losses"
@@ -77,7 +77,7 @@ label var nfip_srl                 "NFIP severe repetitive loss (insurance)"
 
 * Save
 order state countycode zipcode community censusblockgroupfips originalnbdate ///
-    originalconstruction floodzone insured fma_rl fma_srl nfip_rl nfip_srl ///
+    originalconstruction flood_zone insured fma_rl fma_srl nfip_rl nfip_srl ///
     mitigatedindicator totallosses 
 order county city, last
 sort state zipcode censusblockgroupfips 

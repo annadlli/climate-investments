@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Vendela Norman
-Date: 2026-06-25
+Date: 2026-09-02
 
 Description: Cleans the FEMA NFIP redacted policies data, restricting to 
     single-family residential policies.
@@ -38,32 +38,27 @@ foreach st of local states {
 
     * Rename
     ren (propertystate reportedzipcode elevatedbuildingindicator primaryresidenceindicator ///
-        postfirmconstructionindicator) ///
-        (state zipcode elevated primary_residence postfirm)
-
-    * Clean zipcode
-    // Note: A few arrive as ZIP+4 (dashed or not), with a trailing dash/space, or
-    // with the leading zero already stripped by FEMA -- all silently fail the zip
-    // merge onto FMA. 
-    replace zipcode = substr(trim(zipcode), 1, 5)
-    replace zipcode = string(real(zipcode), "%05.0f") if !mi(zipcode) & length(zipcode) < 5
-    assert mi(zipcode) | length(zipcode) == 5
+        postfirmconstructionindicator ratedfloodzone totalinsurancepremiumofthepolicy ///
+        policycost totalbuildinginsurancecoverage) ///
+        (state zipcode elevated primary_residence post_firm flood_zone premium ///
+        policy_cost coverage_building)
 
     * Create additional variables
     // i) Policy year 
     gen policy_year = real(substr(policyeffectivedate, 1, 4))
+    drop policyeffectivedate 
     // ii) Construction year 
     gen construction_year = real(substr(originalconstructiondate, 1, 4))
     // iii) Approximate property id
-    // egen property_id = group(zipcode construction_year ratedfloodzone nfipratedcommunitynumber) // (following Wagner, 2021) 
+    // egen property_id = group(zipcode construction_year flood_zone nfipratedcommunitynumber) // (following Wagner, 2021) 
     gen geo_key = cond(missing(censusblockgroupfips) | censusblockgroupfips == "", ///
         "z" + zipcode, "b" + censusblockgroupfips)
     egen property_id = group(geo_key originalconstructiondate originalnbdate)
     drop geo_key
     // iv) SFHA (Special Flood Hazard Area )
-    // Note: Not sure about current vs. rated flood zone distinction
-    gen sfha = inlist(substr(ratedfloodzone, 1, 1), "A", "V") if !mi(ratedfloodzone) 
-    drop policyeffectivedate 
+    gen sfha = inlist(substr(flood_zone, 1, 1), "A", "V") if !mi(flood_zone) 
+    // v) Risk Rating 2.0 
+    gen risk_rating_2 = ratemethod == "RatingEngine"
 
     * Convert merge variables to date format
     foreach v of varlist originalnbdate originalconstructiondate {
@@ -74,37 +69,49 @@ foreach st of local states {
     }
 
     * Destring variables 
-    destring elevated primary_residence postfirm, replace
-    /* ds id state zipcode countycode censustract censusblockgroupfips ///
-       nfipratedcommunitynumber nfipcommunitynumbercurrent ///
-       ratedfloodzone floodzonecurrent policyeffectivedate ///
-       policyterminationdate originalnbdate, not
-    destring `r(varlist)', replace */
+    destring elevated primary_residence post_firm premium policy_cost coverage_building, replace
 
-    * -----------------------------------------------------------------------------
-    * Section 2: Additional cleaning
-    * -----------------------------------------------------------------------------
-
-    * Additional sample restrictions
-    // Note: The SFHA (flood-zone) restriction is deferred downstream -- keeping SFHA homes
-    // here leaves the cleaned universe complete, so merges and coverage stay legible. The
-    // sfha flag is carried through for the downstream restriction (SFHAs get flat,
-    // pre-calculated BCRs, so restrict on it wherever that matters).
-    // i) Drop if missing key variables
+    * Drop if property cannot be identified 
     drop if missing(property_id)
-
-    * Fix data errors 
-    // i) Elevations must be monotonic (once 1, stays 1) within property over time
-    bysort property_id (policy_year): replace elevated = max(elevated, elevated[_n-1])
-    // ii) Construction year must be in plausible range 
     replace construction_year = . if !inrange(construction_year, 1700, 2027)
     drop if mi(construction_year)
 
+    * Clean variables 
+    // i) Elevations must be monotonic within property over time
+    bysort property_id (policy_year): replace elevated = max(elevated, elevated[_n-1])
+    // ii) Zip codes 
+    replace zipcode = substr(trim(zipcode), 1, 5)
+    replace zipcode = string(real(zipcode), "%05.0f") if !mi(zipcode) & length(zipcode) < 5
+    assert mi(zipcode) | length(zipcode) == 5
+    // iii) Premiums must be positive (zeros and negatives are voids and refunds)
+    foreach var in premium policy_cost {
+        replace `var' = . if `var' <= 0
+    }
+
+    * Deflate nominal variables to 2023 dollars
+    ren policy_year year
+    merge m:1 year using "`data'/clean/cpi.dta", keep(1 3) keepusing(cpi) nogen
+    ren year policy_year
+    foreach var in premium policy_cost coverage_building {
+        replace `var' = `var' / cpi
+    }
+    drop cpi
+
+    * Drop property-year duplicates 
+    gen _premium = cond(mi(premium), -1, premium)
+    bysort property_id policy_year (_premium): keep if _n == _N
+    drop _premium
+    isid property_id policy_year
+
+    * -----------------------------------------------------------------------------
+    * Section 2: Save dataset
+    * -----------------------------------------------------------------------------
+
     * Keep restricted variable set 
-    // Note: Temporary. Will expand variable set later on nfip
     keep property_id state countycode nfipratedcommunitynumber zipcode censustract ///
-        censusblockgroupfips construction_year policy_year ratedfloodzone elevated ///
-        primary_residence originalnbdate originalconstructiondate sfha postfirm
+        censusblockgroupfips construction_year policy_year flood_zone elevated ///
+        primary_residence originalnbdate originalconstructiondate sfha post_firm ///
+        premium policy_cost coverage_building risk_rating_2
 
     * Label 
     label var property_id              "Property ID"
@@ -118,17 +125,21 @@ foreach st of local states {
     label var originalconstructiondate "Original construction date"
     label var construction_year        "Construction year"
     label var policy_year              "Policy effective year"
-    label var ratedfloodzone           "NFIP rated flood zone"
+    label var flood_zone               "NFIP rated flood zone"
     label var sfha                     "In SFHA (rated zone A/V)"
-    label var postfirm                 "Post-FIRM construction"
+    label var post_firm                "Post-FIRM construction"
     label var elevated                 "Elevated home"
     label var primary_residence        "Primary residence"
+    label var premium                  "Total insurance premium (2023 $)"
+    label var policy_cost              "Policy cost incl. fees and surcharges (2023 $)"
+    label var coverage_building        "Building insurance coverage (2023 $)"
+    label var risk_rating_2            "Priced under Risk Rating 2.0"
 
     * Save
-    order property_id state zipcode censusblockgroupfips policy_year originalnbdate ///
-        originalconstructiondate construction_year ratedfloodzone elevated
-    order countycode nfipratedcommunitynumber censustract, last
-    sort property_id state countycode zipcode censustract censusblockgroupfips policy_year
+    order state property_id policy_year construction_year post_firm sfha primary_residence ///
+        elevated risk_rating_2 premium policy_cost coverage_building
+    order originalconstructiondate censusblockgroupfips originalnbdate, last
+    sort state property_id policy_year
     compress 
     sa "`data'/clean/nfip_policies_state/`stl'.dta", replace
 
