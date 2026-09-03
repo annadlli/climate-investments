@@ -9,3 +9,9 @@ __pycache__/
 
 # Overleaf paper clone (own git repo, synced to git.overleaf.com — not tracked here)
 drafts/
+
+# Archived code, data, and outputs: kept locally and in git history, not tracked
+archive/
+
+# Data lives in Dropbox, never in the repo
+data/
