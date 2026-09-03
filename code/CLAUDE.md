@@ -20,7 +20,7 @@ flood risk. Stata (`.do`) + Python (`.py`, `.ipynb`). Econ PhD work; collaborato
 ATTOM now covers all 20 too (value cells for 20 states; Census-geocoded parquets for 8; property-Wagner
 links for 18 — ME/MS pending). The active pipeline builds stable NFIP-property identifiers, links ATTOM
 to those properties through the Wagner cells, and finalizes the property-level analysis input;
-the superseded `compile2.do` path is archived.
+`compile2.do` (Vendela) is the cell-level alternative, kept live until item 1 in TODO.md is settled.
 
 ## Code and data are decoupled
 
@@ -38,22 +38,27 @@ in `master.do`; no hardcoded user paths in scripts.)
 ## Pipeline (`master.do`, construction only)
 
 ```
-clean/extract_nfip_policies.py    -> clean/nfip_policies_raw/{st}.csv    (split national file per state)
-clean/extract_builty.py           -> clean/builty_raw/{st}.csv           (per-state elevation candidates)
-clean/extract_attom.py            -> {st}/attom_{st}.parquet             (split Dewey ATTOM batches per state)
+prepare/import_dewey.py           -> raw/dewey/...                       (Dewey ATTOM + Builty pull)
+prepare/extract_nfip_policies.py  -> clean/nfip_policies_raw/{st}.csv    (split national file per state)
+prepare/extract_builty.py         -> clean/builty_raw/{st}.csv           (per-state elevation candidates)
+prepare/extract_attom.py          -> {st}/attom_{st}.parquet             (split Dewey ATTOM batches per state)
+prepare/geocode_attom.py          -> build/attom_geocode/{st}_addr/...   (Census geocode of ATTOM addresses, Torch)
 clean/crosswalks.do               -> clean/crosswalks/county_xwalk.dta   (state·county -> FIPS)
 clean/clean_cpi.do                -> clean/cpi.dta                       (annual, base 2023)
 clean/clean_fma.do                -> clean/fma_elevation.dta             (FMA single-family elevations)
 clean/clean_builty.do             -> clean/builty_states/builty_elevations_{st}.dta  (per-state, screened to true elevations)
                                      + clean/builty_elevations.dta        (appended, collapsed to property level)
 clean/clean_nfip_policies.do      -> clean/nfip_policies_state/{st}.dta  (policy-year level, per state)
+clean/clean_nfip_claims.do        -> clean/nfip_claims_panel.dta + clean/nfip_claims_property.dta  (property-year, property)
 clean/clean_nfip_multiple_loss.do -> clean/nfip_multiple_loss.dta
 build/prep_fma.do                 -> clean/fma_zip.dta + clean/fma_county.dta
-build/prep_nfip_policies.do       -> clean/nfip_policies_property.dta    (policy-year -> property)
+build/prep_nfip_policies.do       -> clean/nfip_policies_panel.dta + clean/nfip_policies_property.dta  (property-year, property)
 build/compile.do                  -> analysis/analysis.dta               (property-level analysis set)
-slurm/run_property_matching.sh    -> ATTOM geocode/NFHL/Builty/property matching jobs
-build/finalize_nfip_attom_property.py -> final matched property dataset
-build/compile_nfip_property_attom.do  -> property-level Stata output
+build/geocode_builty.py           -> build/builty_elevations_zipfilled.dta (Census geocoder; permits input to matching)
+slurm/run_property_matching.sh    -> build/nfip_attom_pipeline_v2/...     (ATTOM geocode/NFHL/Builty/property matching jobs)
+build/parquet_dta.py              -> build/nfip_attom_property/{st}_nfip_attom_property.dta
+build/final_data.do               -> analysis/analysis_no_diagnostics.dta  (+ build/nfip_attom_property_links.dta)
+descriptives/summary_table.do     -> ../output/tables/summary_table.{dta,xlsx}  (summary_stats switch)
 build/alternates/attom_value_cells.py -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
                                      (.sh = Torch/SLURM wrapper)
 ```
@@ -62,7 +67,7 @@ build/alternates/attom_value_cells.py -> build/{state}_attom_value_{zip,county}_
 carries ZIP) with HMA Projects merged in `m:1` on `projectidentifier` (carries dollars, BCR, status).
 The merge doubles as the funding screen — MitProps logs properties for applications that were never
 funded, so the Projects status filter is what removes them. `prep_fma.do` then pools grants to ZIP
-(primary) and county (fallback); `clean_nfip_claims.do` is parked in `scratch/` pending the ∆D work.
+(primary) and county (fallback).
 
 `attom_value_cells.py` aggregates raw ATTOM to ZIP/county × construction-year/decade value
 cells — NFIP has no street address, so these merge property values onto the NFIP universe by cell.
@@ -79,17 +84,22 @@ is **superseded and archived in `build/archive/`** — not the current path.
 
 ```
 code/
-├── master.do                 local code/data roots, args-pass + 0/1 switches; clean + build
-├── clean/                    import_dewey.py (acquisition) + extract_* (national -> per-state) + clean_* (raw -> clean)
+├── master.do                 local code/data roots, args-pass + 0/1 switches; prepare + clean + build + descriptives
+├── prepare/                  run-once Python: import_dewey (acquisition), extract_* (national -> per-state), geocode_attom
+├── clean/                    clean_* (raw -> clean)
 │   └── archive/              dropped sources (clean_nri/npr, nri_prep, clean_fma_projects) + torch_work/ (NYU cluster acquisition)
 ├── build/                    active construction scripts called by master.do or the SLURM driver
 │   └── archive/              Gen-1 merge/panel scripts + nfip_build.do + deprioritized Builty chain
-├── descriptives/             descriptive scripts (Gen-1 in descriptives/archive/, await rebuild)
+├── descriptives/             summary_table.do (master.do switch) + Builty word cloud; Gen-1 in descriptives/archive/
 ├── slurm/                    shared cluster wrappers and reusable shell drivers
 └── analysis/                 regressions, RD, identification (Gen-1 in analysis/archive/, await rebuild)
 
-output/                       saved .gph graphs — repo-root sibling of code/ (artifacts, not code)
+output/                       tables/ + figures/ — repo-root sibling of code/ (artifacts, not code; tracked)
+archive/                      superseded data, outputs, drafts — repo-root sibling; not tracked
 ```
+
+Every `archive/` folder (repo root, `output/archive/`, each code stage's `archive/`) and `data/` is
+gitignored: archived files stay on disk and in git history but are not in the repo.
 
 Data (Dropbox `Flooding/Empirical/Data/`): `raw → clean → build → analysis`, NOT under `code/`.
 

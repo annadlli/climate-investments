@@ -24,9 +24,9 @@ To run on another machine, edit only the `local code` / `local data` lines at th
 ## Pipeline (`code/master.do`)
 
 ```
-CLEAN  clean/extract_nfip_policies.py    -> clean/nfip_policies_raw/{st}.csv
-       clean/extract_builty.py           -> clean/builty_raw/{st}.csv
-       clean/crosswalks.do               -> clean/crosswalks/county_xwalk.dta
+PREP   prepare/extract_nfip_policies.py  -> clean/nfip_policies_raw/{st}.csv
+       prepare/extract_builty.py         -> clean/builty_raw/{st}.csv
+CLEAN  clean/crosswalks.do               -> clean/crosswalks/county_xwalk.dta
        clean/clean_cpi.do                -> clean/cpi.dta
        clean/clean_fma.do                -> clean/fma_elevation.dta
        clean/clean_nfip_policies.do      -> clean/nfip_policies_state/{st}.dta
@@ -52,11 +52,13 @@ NFIP policy file's own flag.
 
 | Folder | Stage |
 |---|---|
-| `code/clean/` | acquisition (`import_dewey.py`), per-state extraction (`extract_*.py`), and raw → clean (`clean_*.do`, one per source); dropped sources + `torch_work/` in `clean/archive/` |
+| `code/prepare/` | run-once Python: acquisition (`import_dewey.py`), per-state extraction (`extract_*.py`), ATTOM geocoding |
+| `code/clean/` | raw → clean (`clean_*.do`, one per source); dropped sources + `torch_work/` in `clean/archive/` |
 | `code/build/` | clean → build/analysis (`prep_*`, `compile.do`, ATTOM cells; `build/archive/` holds superseded code incl. the Builty chain) |
-| `code/descriptives/` | descriptive scripts (run separately) — currently all Gen-1, in `descriptives/archive/` |
+| `code/descriptives/` | `summary_table.do` (via `master.do`) and the Builty word cloud; Gen-1 scripts in `descriptives/archive/` |
 | `code/analysis/` | regressions, identification, etc. (run separately) — currently all Gen-1, in `analysis/archive/` |
-| `output/` | saved `.gph` graphs — repo-root sibling of `code/` (artifacts, not code) |
+| `output/` | `tables/` and `figures/` — repo-root sibling of `code/` (artifacts, not code) |
+| `archive/` | superseded data, outputs, and drafts — repo-root sibling; gitignored |
 
 ## Data organization (`Dropbox/Flooding/Empirical/Data/`)
 
@@ -82,8 +84,8 @@ Held in the repo but not invoked by `master.do`:
 | **FEMA NFIP claims** | flood-insurance claims | claim |
 | **Builty** | building permits; flood-elevation permits via text detection | permit |
 
-**Removed 2026-05-29:** NRI, NPR buyouts, ClimateRisk. Superseded code is kept rather than deleted —
-see `clean/archive/` and `build/archive/`.
+**Removed 2026-05-29:** NRI, NPR buyouts, ClimateRisk. Superseded code moves to the stage's `archive/` folder,
+which is gitignored: it stays on the machine that archived it and in git history.
 
 ## Requirements
 

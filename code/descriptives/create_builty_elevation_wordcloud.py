@@ -7,6 +7,8 @@ keyword filter caught what it was meant to.
 
 One row per property. clean_builty.do collapses description with (firstnm), so
 this is the earliest permit at each address, not every permit.
+
+Run by hand; write the PNG to output/figures/builty_elevation_wordcloud.png.
 """
 
 from __future__ import annotations
