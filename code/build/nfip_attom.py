@@ -159,7 +159,7 @@ def initial_policy_snapshot(frame: pd.DataFrame, state_policies: str) -> pd.Data
     # older property files lack the *_init columns -- rebuild from each
     # property's first policy year
     columns = ["property_id", "policy_year", "zipcode", "censusblockgroupfips",
-               "ratedfloodzone", "postfirm", "countycode", "nfipratedcommunitynumber"]
+               "flood_zone", "post_firm", "countycode", "nfipratedcommunitynumber"]
     policy = pd.read_stata(state_policies, convert_categoricals=False, columns=columns)
     initial = (policy.sort_values(["property_id", "policy_year"])
                .drop_duplicates("property_id", keep="first")
@@ -187,7 +187,7 @@ def load_properties(path: str, state_policies: str, state: str,
         if nfhl_snapshot_year is None:
             raise ValueError("--nfhl-snapshot-year is required for NFHL snapshot matching")
         columns = ["property_id", "policy_year", "construction_year", "zipcode",
-                   "censusblockgroupfips", "ratedfloodzone", "postfirm",
+                   "censusblockgroupfips", "flood_zone", "post_firm",
                    "countycode", "nfipratedcommunitynumber"]
         frame = pd.read_stata(state_policies, convert_categoricals=False, columns=columns)
         frame.columns = [str(c).lower() for c in frame.columns]
@@ -214,8 +214,8 @@ def load_properties(path: str, state_policies: str, state: str,
         base = ["property_id", "state", "construction_year", "policy_year_init"]
         init_map = {"zipcode_init": "zipcode",
                     "censusblockgroupfips_init": "censusblockgroupfips",
-                    "ratedfloodzone_init": "ratedfloodzone",
-                    "postfirm_init": "postfirm",
+                    "flood_zone_init": "flood_zone",
+                    "post_firm_init": "post_firm",
                     "countycode_init": "countycode",
                     "nfipratedcommunitynumber_init": "nfipratedcommunitynumber"}
         if all(c in frame.columns for c in init_map):
@@ -239,10 +239,10 @@ def load_properties(path: str, state_policies: str, state: str,
     frame["construction_year"] = to_year(frame["construction_year"], "construction_year").astype("Int64")
     frame["construction_5yr"] = (frame["construction_year"] // 5) * 5
     frame["construction_decade"] = (frame["construction_year"] // 10) * 10
-    frame["nfip_flood_zone_original"] = frame["ratedfloodzone"].astype("string")
-    frame["flood_zone_key"] = zone(frame["ratedfloodzone"])
-    frame["flood_risk_key"] = risk(frame["ratedfloodzone"])
-    frame["postfirm_key"] = to_year(frame["postfirm"], "postfirm").astype("Int64")
+    frame["nfip_flood_zone_original"] = frame["flood_zone"].astype("string")
+    frame["flood_zone_key"] = zone(frame["flood_zone"])
+    frame["flood_risk_key"] = risk(frame["flood_zone"])
+    frame["postfirm_key"] = to_year(frame["post_firm"], "post_firm").astype("Int64")
 
     # anchor year for the value lookup
     frame["reference_year"] = to_year(

@@ -3,14 +3,17 @@ Authors: Anna Li
 Original Date: 2026-08-12
 Revised Date: 2026-08-16
 
-Puts an ATTOM property value onto every Builty elevation permit.
+Merges Builty elevation permits onto the ATTOM property file.
 
 Builty is the only source with a real street address, so this is the one place
 in the pipeline where we get a genuine 1:1 property match rather than a fuzzy
 cell match. Addresses on both sides get scrubbed into the same shape, then we
-try a ladder of match keys from tightest to loosest. For each permit we take
-the ATTOM assessment closest to the permit year, preferring one from before
-the elevation happened.
+try a ladder of match keys from tightest to loosest against the full raw ATTOM
+file. For each permit we take the ATTOM assessment closest to the permit year,
+preferring one from before the elevation happened (saved permit-level to
+--permits-out). The matched permits are then collapsed to one row per ATTOMID
+and left-joined onto the ATTOM--NFHL property file, so every property survives
+and carries builty_elevated / builty_elevation_year (saved to --out).
 """
 
 from __future__ import annotations
@@ -80,7 +83,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data", required=True)
     parser.add_argument("--permits", default=None)
     parser.add_argument("--attom", default=None)
+    parser.add_argument("--attom-nfhl", required=True, help="{state}_attom_nfhl.parquet, the property master")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--permits-out", default=None)
     parser.add_argument("--tmp", default="/tmp")
     parser.add_argument("--threads", default=4, type=int)
     parser.add_argument("--memory", default="32GB")
@@ -364,6 +369,25 @@ def reorder_columns(permits: pd.DataFrame) -> pd.DataFrame:
     return permits[ordered + rest].sort_values(["county_fips", "permit_year"]).reset_index(drop=True)
 
 
+def clean_id(series: pd.Series) -> pd.Series:
+    # ATTOMIDs sometimes arrive as floats, so "12345.0" needs to become "12345"
+    return series.astype("string").str.strip().str.replace(r"\.0$", "", regex=True)
+
+
+def collapse_to_properties(permits: pd.DataFrame) -> pd.DataFrame:
+    # a property can carry several permits, so squash them down to one row per ATTOMID
+    permits = permits.assign(attomid=clean_id(permits["ATTOMID"]))
+    permits = permits.loc[permits["attomid"].notna()]
+    permits["elevation_year"] = pd.to_numeric(permits["permit_year"], errors="coerce")
+    builty = permits.groupby("attomid", as_index=False).agg(
+        builty_elevation_year=("elevation_year", "min"),
+        builty_n_properties=("BUILTY_ID", "nunique"),
+        builty_attom_match_tier=("attom_match_tier", "first"),
+    )
+    builty["builty_elevated"] = 1
+    return builty
+
+
 def main() -> None:
     args = parse_args()
     state = args.state.upper()
@@ -371,87 +395,102 @@ def main() -> None:
 
     permits_path = Path(args.permits) if args.permits else data / "build" / "builty_elevations_zipfilled.dta"
     attom_input = args.attom or str(data / "raw" / "attom" / f"attom_{state.lower()}.parquet")
-    out_path = Path(args.out) if args.out else data / "build" / f"{state.lower()}_attom_permits.parquet"
+    out_path = Path(args.out) if args.out else data / "build" / f"{state.lower()}_attom_builty.parquet"
+    permits_out = Path(args.permits_out) if args.permits_out else data / "build" / f"{state.lower()}_attom_permits.parquet"
 
     con = open_duckdb(args)
 
     # bring in this state's elevation permits
     permits = load_permits(con, permits_path, state)
 
-    # a couple of states have no elevation permits at all, so write the empty
-    # shell the next script expects and stop here
+    # a couple of states have no elevation permits at all; skip the match and
+    # carry an empty permit frame into the property join below
     if len(permits) == 0:
-        for column, dtype in [("ATTOMID", "string"), ("permit_year", "float64"),
-                              ("attom_match_tier", "string")]:
+        for column, dtype in [("ATTOMID", "string"), ("BUILTY_ID", "string"),
+                              ("permit_year", "float64"), ("attom_match_tier", "string")]:
             permits[column] = pd.Series(dtype=dtype)
-        permits.to_parquet(out_path, index=False)
-        print(f"{state}: 0 permits, wrote empty output")
-        return
+        print(f"{state}: 0 permits")
+    else:
+        # work out when each elevation happened and which county it sits in
+        add_permit_dates(permits)
+        state_fips = permits["FIPS_STATE"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(2)
+        county_fips = permits["FIPS_COUNTY"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(3)
+        permits["county_fips"] = state_fips + county_fips
 
-    # work out when each elevation happened and which county it sits in
-    add_permit_dates(permits)
-    state_fips = permits["FIPS_STATE"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(2)
-    county_fips = permits["FIPS_COUNTY"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(3)
-    permits["county_fips"] = state_fips + county_fips
+        # build the three address keys and the zip key the match ladder runs on
+        permits["permit_row_id"] = np.arange(len(permits))
+        permits["addr_clean"] = clean_address(permits["STREET_ADDRESS"], permits["LOCALITY"], permits["STATE"])
+        permits["zip_clean"] = recover_zip(permits["ZIPCODE"], permits["STREET_ADDRESS"])
+        permits["addr_nosuffix"] = (permits["addr_clean"]
+                                    .str.replace(rf'\s+({STREET_SUFFIXES})$', "", regex=True).str.strip()
+                                    .str.replace(r'\s+(apt|unit|ste)\s+.*$', '', regex=True).str.strip())
+        permits["addr_compact"] = permits["addr_nosuffix"].str.replace(" ", "", regex=False)
 
-    # build the three address keys and the zip key the match ladder runs on
-    permits["permit_row_id"] = np.arange(len(permits))
-    permits["addr_clean"] = clean_address(permits["STREET_ADDRESS"], permits["LOCALITY"], permits["STATE"])
-    permits["zip_clean"] = recover_zip(permits["ZIPCODE"], permits["STREET_ADDRESS"])
-    permits["addr_nosuffix"] = (permits["addr_clean"]
-                                .str.replace(rf'\s+({STREET_SUFFIXES})$', "", regex=True).str.strip()
-                                .str.replace(r'\s+(apt|unit|ste)\s+.*$', '', regex=True).str.strip())
-    permits["addr_compact"] = permits["addr_nosuffix"].str.replace(" ", "", regex=False)
+        # pull the matching ATTOM records and clean their addresses the same way
+        schema, _ = attom_column_map(con, attom_input)
+        attom = load_attom(con, attom_input, schema, permits, state_fips.iloc[0])
 
-    # pull the matching ATTOM records and clean their addresses the same way
-    schema, _ = attom_column_map(con, attom_input)
-    attom = load_attom(con, attom_input, schema, permits, state_fips.iloc[0])
+        # start every permit off unmatched, with blank columns waiting to be filled
+        value_columns = [c for c in attom.columns if c not in KEY_COLUMNS]
+        for column in value_columns:
+            permits[column] = pd.Series(pd.NA, index=permits.index, dtype="object")
+        permits["attom_match_tier"] = "unmatched"
+        permits["attom_value_asof"] = pd.Series(pd.NA, index=permits.index, dtype="object")
 
-    # start every permit off unmatched, with blank columns waiting to be filled
-    value_columns = [c for c in attom.columns if c not in KEY_COLUMNS]
-    for column in value_columns:
-        permits[column] = pd.Series(pd.NA, index=permits.index, dtype="object")
-    permits["attom_match_tier"] = "unmatched"
-    permits["attom_value_asof"] = pd.Series(pd.NA, index=permits.index, dtype="object")
+        # run the ladder, each tier only picking up what the tighter ones left behind
+        for permit_keys, attom_keys, tier, require_unique in MATCH_TIERS:
+            permits = apply_temporal_match(permits, attom, value_columns,
+                                           permit_keys, attom_keys, tier, require_unique)
 
-    # run the ladder, each tier only picking up what the tighter ones left behind
-    for permit_keys, attom_keys, tier, require_unique in MATCH_TIERS:
-        permits = apply_temporal_match(permits, attom, value_columns,
-                                       permit_keys, attom_keys, tier, require_unique)
+        # where Builty had no zip but the matched ATTOM record does, borrow theirs
+        attom_zip = permits["attom_zipcode"].fillna("").astype(str).str.extract(r"^(\d{5})", expand=False).fillna("")
+        borrowed = permits["zip_clean"].eq("") & attom_zip.ne("") & permits["attom_match_tier"].ne("unmatched")
+        permits.loc[borrowed, "zip_clean"] = attom_zip[borrowed]
+        permits.loc[borrowed, "ZIPCODE"] = attom_zip[borrowed]
+        if "ZIPCODE_SOURCE" not in permits.columns:
+            permits["ZIPCODE_SOURCE"] = ""
+        permits.loc[borrowed, "ZIPCODE_SOURCE"] = "attom"
 
-    # where Builty had no zip but the matched ATTOM record does, borrow theirs
-    attom_zip = permits["attom_zipcode"].fillna("").astype(str).str.extract(r"^(\d{5})", expand=False).fillna("")
-    borrowed = permits["zip_clean"].eq("") & attom_zip.ne("") & permits["attom_match_tier"].ne("unmatched")
-    permits.loc[borrowed, "zip_clean"] = attom_zip[borrowed]
-    permits.loc[borrowed, "ZIPCODE"] = attom_zip[borrowed]
-    if "ZIPCODE_SOURCE" not in permits.columns:
-        permits["ZIPCODE_SOURCE"] = ""
-    permits.loc[borrowed, "ZIPCODE_SOURCE"] = "attom"
+        # the value columns came back as objects, so make them numbers again
+        for column in ["TAXASSESSEDVALUETOTAL", "TAXASSESSEDVALUEIMPROVEMENTS", "PREVIOUSASSESSEDVALUE",
+                       "YEARBUILT", "YEARBUILTEFFECTIVE", "attom_assessment_year", "PROJECT_VALUE"]:
+            if column not in permits.columns:
+                permits[column] = np.nan
+            permits[column] = pd.to_numeric(permits[column], errors="coerce")
 
-    # the value columns came back as objects, so make them numbers again
-    for column in ["TAXASSESSEDVALUETOTAL", "TAXASSESSEDVALUEIMPROVEMENTS", "PREVIOUSASSESSEDVALUE",
-                   "YEARBUILT", "YEARBUILTEFFECTIVE", "attom_assessment_year", "PROJECT_VALUE"]:
-        if column not in permits.columns:
-            permits[column] = np.nan
-        permits[column] = pd.to_numeric(permits[column], errors="coerce")
+        # the headline property value, falling back to the prior year where needed
+        permits["pre_flood_assessed_value"] = permits["TAXASSESSEDVALUETOTAL"].fillna(permits["PREVIOUSASSESSEDVALUE"])
+        permits["prop_value"] = permits["pre_flood_assessed_value"]
 
-    # the headline property value, falling back to the prior year where needed
-    permits["pre_flood_assessed_value"] = permits["TAXASSESSEDVALUETOTAL"].fillna(permits["PREVIOUSASSESSEDVALUE"])
-    permits["prop_value"] = permits["pre_flood_assessed_value"]
+        # how the house was worth against what the elevation cost
+        usable = ((permits["prop_value"] > 0) & (permits["PROJECT_VALUE"] > 0)).fillna(False)
+        permits["val_cost_ratio"] = np.where(usable, permits["prop_value"] / permits["PROJECT_VALUE"], np.nan)
+        permits["attom_has_blockgroup"] = (
+            permits["censusblockgroupfips"].fillna("").astype(str).str.len() == 12).astype(int)
 
-    # how the house was worth against what the elevation cost
-    usable = ((permits["prop_value"] > 0) & (permits["PROJECT_VALUE"] > 0)).fillna(False)
-    permits["val_cost_ratio"] = np.where(usable, permits["prop_value"] / permits["PROJECT_VALUE"], np.nan)
-    permits["attom_has_blockgroup"] = (
-        permits["censusblockgroupfips"].fillna("").astype(str).str.len() == 12).astype(int)
+        # save the matched permits; diagnostics are generated separately in descriptives
+        permits = reorder_columns(permits)
+        permits.to_parquet(permits_out, index=False)
 
-    # save the matched permits; diagnostics are generated separately in descriptives
-    permits = reorder_columns(permits)
-    permits.to_parquet(out_path, index=False)
+        matched = int((permits["attom_match_tier"] != "unmatched").sum())
+        print(f"{state}: {len(permits):,} permits, {matched:,} matched "
+              f"({matched / len(permits):.0%}), saved {permits_out.name}")
 
-    matched = int((permits["attom_match_tier"] != "unmatched").sum())
-    print(f"{state}: {len(permits):,} permits, {matched:,} matched "
-          f"({matched / len(permits):.0%}), saved {out_path.name}")
+    # collapse the matched permits to property level and hang them off the
+    # ATTOM--NFHL master; every property survives, permit columns fill where matched
+    builty = collapse_to_properties(permits)
+    attom_nfhl = pd.read_parquet(args.attom_nfhl)
+    attom_nfhl["attomid"] = clean_id(attom_nfhl["attomid"])
+    result = attom_nfhl.merge(builty, on="attomid", how="left", validate="one_to_one")
+
+    # properties with no permit are not elevated rather than unknown
+    result["builty_elevated"] = result["builty_elevated"].fillna(0).astype("int8")
+    result["builty_n_properties"] = result["builty_n_properties"].fillna(0).astype("int16")
+    result["builty_merge_status"] = result["builty_elevated"].map({0: 1, 1: 3}).astype("int8")
+
+    result.to_parquet(out_path, index=False)
+    print(f"{state}: {len(result):,} ATTOM properties, "
+          f"{int(result['builty_elevated'].sum()):,} with a Builty elevation, saved {out_path.name}")
 
 
 if __name__ == "__main__":

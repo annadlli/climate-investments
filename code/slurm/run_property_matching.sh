@@ -73,8 +73,8 @@ STATE_POLICIES="${DATA}/clean/nfip_policies_state/${ST}.dta"
 GEOCODED="${OUT_ROOT}/geocoded/${ST}_attom_geocoded.parquet"
 BLOCKGROUPS="${OUT_ROOT}/geocoded/${ST}_attom_blockgroups"
 NFHL="${OUT_ROOT}/nfhl_matches/${ST}_attom_nfhl.parquet"
-BUILTY="${OUT_ROOT}/builty_attom/${ST}_attom_permits.parquet"
-ENRICHED="${OUT_ROOT}/elev_flag_onto_attom/${ST}_attom_nfhl_builty.parquet"
+PERMITS_OUT="${OUT_ROOT}/attom_builty/${ST}_attom_permits.parquet"
+BUILTY="${OUT_ROOT}/attom_builty/${ST}_attom_builty.parquet"
 FINAL="${OUT_ROOT}/nfip_attom_property/${ST}_nfip_attom_property.parquet"
 
 
@@ -108,12 +108,12 @@ echo "    output   ${OUT_ROOT}"
 #
 # Fans the cached Census block-group results back onto ATTOM properties.
 # -----------------------------------------------------------------------------
-if step_needed "1/5" "${GEOCODED}"; then
+if step_needed "1/4" "${GEOCODED}"; then
     require "${RAW_ATTOM}" \
             "${GEOCODE_WORK}/attomid_xwalk.parquet" \
             "${GEOCODE_WORK}/blockgroups_by_address.parquet"
-    echo "[1/5] ATTOM geocoded panel"
-    "${PYTHON}" "${CODE}/attom_geocoded.py" \
+    echo "[1/4] ATTOM geocoded panel"
+    "${PYTHON}" "${CODE}/attom_geocode.py" \
         --state "${STU}" --data "${DATA}" --sample 0 \
         --out "${GEOCODED}" --blockgroups-out "${BLOCKGROUPS}" \
         --tmp "${TMP}/geocoded" --memory "${MEMORY}"
@@ -125,46 +125,35 @@ fi
 # Attaches the flood zone and NFIP community each geocoded property sits in.
 # All state map vintages are 2018 except Vermont, which is 2016. Comes from Wagner.
 # -----------------------------------------------------------------------------
-if step_needed "2/5" "${NFHL}"; then
+if step_needed "2/4" "${NFHL}"; then
     require "${GEOCODED}" "${NFHL_ROOT}"
-    echo "[2/5] ATTOM--NFHL spatial join"
+    echo "[2/4] ATTOM--NFHL spatial join"
     "${PYTHON}" "${CODE}/attom_nfhl.py" \
         --state "${STU}" --nfhl "${NFHL_ROOT}" \
         --points "${GEOCODED}" --out "${NFHL}"
 fi
 
 # -----------------------------------------------------------------------------
-# 3. Builty permits -> ATTOM, by address.
+# 3. Builty permits -> ATTOM.
 #
-# Matched against the FULL RAW ATTOM file, not the geocoded panel. This is the
-# correction that motivated the rebuild: matching against the geocoded panel
-# made every permit whose property failed to geocode unmatchable before the
-# match began, which silently shrank the treated sample.
+# Permits are address-matched against the FULL RAW ATTOM file, not the geocoded
+# panel: matching against the panel made every permit whose property failed to
+# geocode unmatchable, which silently shrank the treated sample. The matched
+# permits are then collapsed to property level and left-joined onto the
+# ATTOM--NFHL master, so every property survives.
 # -----------------------------------------------------------------------------
-if step_needed "3/5" "${BUILTY}"; then
-    require "${RAW_ATTOM}" "${PERMITS}"
-    echo "[3/5] Builty--ATTOM address match against raw ATTOM"
-    "${PYTHON}" "${CODE}/attom_onto_permits.py" \
+if step_needed "3/4" "${BUILTY}"; then
+    require "${RAW_ATTOM}" "${PERMITS}" "${NFHL}"
+    echo "[3/4] Builty--ATTOM address match, joined onto the ATTOM--NFHL universe"
+    "${PYTHON}" "${CODE}/attom_builty.py" \
         --state "${STU}" --data "${DATA}" --permits "${PERMITS}" \
-        --attom "${RAW_ATTOM}" --out "${BUILTY}" \
+        --attom "${RAW_ATTOM}" --attom-nfhl "${NFHL}" \
+        --out "${BUILTY}" --permits-out "${PERMITS_OUT}" \
         --tmp "${TMP}/builty" --memory "${MEMORY}" --threads "${THREADS}"
 fi
 
 # -----------------------------------------------------------------------------
-# 4. Builty flags onto the ATTOM--NFHL universe.
-#
-# Left join on the ATTOM master, so every property survives and only the
-# elevation columns are filled in where a permit matched.
-# -----------------------------------------------------------------------------
-if step_needed "4/5" "${ENRICHED}"; then
-    require "${NFHL}" "${BUILTY}"
-    echo "[4/5] Left merge Builty onto the ATTOM--NFHL universe"
-    "${PYTHON}" "${CODE}/elev_flag_onto_attom.py" \
-        --attom-nfhl "${NFHL}" --builty-attom "${BUILTY}" --out "${ENRICHED}"
-fi
-
-# -----------------------------------------------------------------------------
-# 5. Assign ATTOM properties to NFIP properties.
+# 4. Assign ATTOM properties to NFIP properties.
 #
 # The identification step: one ATTOM property per NFIP property, down a ladder
 # of successively looser cells. --use-codes restricts the candidate pool to
@@ -172,13 +161,13 @@ fi
 # tier for properties with no recorded construction year, which every earlier
 # tier requires and would otherwise drop.
 # -----------------------------------------------------------------------------
-if step_needed "5/5" "${FINAL}"; then
-    require "${PROPERTIES}" "${STATE_POLICIES}" "${GEOCODED}" "${ENRICHED}"
-    echo "[5/5] Assign SFR ATTOM candidates to NFIP properties"
-    "${PYTHON}" "${CODE}/assign_attom_to_nfip_property.py" \
+if step_needed "4/4" "${FINAL}"; then
+    require "${PROPERTIES}" "${STATE_POLICIES}" "${GEOCODED}" "${BUILTY}"
+    echo "[4/4] Assign SFR ATTOM candidates to NFIP properties"
+    "${PYTHON}" "${CODE}/nfip_attom.py" \
         --state "${STU}" --properties "${PROPERTIES}" \
         --state-policies "${STATE_POLICIES}" --attom "${GEOCODED}" \
-        --attom-nfhl-builty "${ENRICHED}" \
+        --attom-nfhl-builty "${BUILTY}" \
         --use-codes 376,380,382,383,385,386 \
         --add-tier-15 \
         --out "${FINAL}" --tmp "${TMP}/assignment" \

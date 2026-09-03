@@ -19,13 +19,15 @@ set more off
 local code "/Users/vendelasolvindnorman/Documents/Econ_PhD/Projects/climate-investments/code"
 local data "/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
 local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
-local output "`code'/../output"
 
 * --- Anna ---
 /* local code "/Users/anna/Desktop/climate-investments/code"
 local data "/Users/anna/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
 local python "/opt/anaconda3/bin/python" */
-local output "`code'/../output"
+
+* --- Derived (same for everyone) ---
+local output "`code'/../output" // repo-root sibling of code/: tables/ and figures/
+
 * -----------------------------------------------------------------------------
 * Locals
 * -----------------------------------------------------------------------------
@@ -42,66 +44,71 @@ local dewey_run_id ""
 * Section 1: Set switches 
 * -----------------------------------------------------------------------------
 
-// i) Clean
-local import_dewey             = 0 // import Attom and Builty data from Dewey
-local extract_nfip_policies    = 0 // extract per-state NFIP policies
-local extract_builty           = 0 // extract per-state Builty elevation-candidate permits
-local extract_attom            = 0 // extract per-state ATTOM property data
-local crosswalks               = 0 // create geographic crosswalks
-local clean_cpi                = 0 // clean CPI deflator data
-local clean_fma                = 0 // clean FEMA FMA data
-local clean_builty             = 0 // clean Builty permits data
-local clean_nfip_policies      = 0 // clean NFIP policies data
-local clean_nfip_claims        = 0 // clean NFIP claims data
-local clean_nfip_multiple_loss = 0 // clean NFIP multiple-loss data
+// i) Prepare
+local import_dewey                      = 0 // import Attom and Builty data from Dewey
+local extract_nfip_policies             = 0 // extract per-state NFIP policies
+local extract_builty                    = 0 // extract per-state Builty elevation-candidate permits
+local extract_attom                     = 0 // extract per-state ATTOM property data
+local geocode_attom                     = 0 // geocode ATTOM addresses to fill Census block groups
 
-// ii) Build
-local prep_fma                 = 0 // collapse FMA across years to zip/county level
-local prep_nfip_policies       = 0 // collapse NFIP policy data to property level
-local compile                  = 0 // compile property-level analysis dataset
-local complete                 = 1 // prepares final analysis dataset
+// ii) Clean
+local crosswalks                        = 0 // create geographic crosswalks
+local clean_cpi                         = 0 // clean CPI deflator data
+local clean_fma                         = 0 // clean FEMA FMA data
+local clean_builty                      = 0 // clean Builty permits data
+local clean_nfip_policies               = 1 // clean NFIP policies data
+local clean_nfip_claims                 = 0 // clean NFIP claims data
+local clean_nfip_multiple_loss          = 0 // clean NFIP multiple-loss data
 
+// iii) Build (Vendela -- to be harmonized)
+local prep_fma                          = 0 // collapse FMA across years to zip/county level
+local prep_nfip_policies                = 1 // append NFIP policy data; collapse to property level
+local compile                           = 0 // compile property-level analysis dataset
+local complete                          = 0 // prepares final analysis dataset
 
-// iii) Build: finalized Builty -> ATTOM -> NFIP property pipeline
-*local geocode_attom            = 0 // extract ATTOM addresses + Census geocode to block groups
+// iv) Build (Anna)
+local geocode_builty                    = 0 // geocode Builty to fill missing ZIP codes
+local merge_datasets                    = 0 // runs all of the torch scripts except geocode_attom.
+    // local attom_geocode                  = 0 // merge geocoded Census block group to full ATTOM property records
+    // local attom_nfhl                     = 0 // merge Attom w/ NFHL flood zone data
+    // local attom_builty                   = 0 // merge Attom w/ Builty 
+    // local nfip_attom                     = 0 // merge ATTOM with NFIP using the matching tiers
+local parquet_dta                       = 0 // convert parquet file to Stata
+local final_data                        = 0 // merge results onto analysis.dta to create final two versions of the dataset
 
-*local run_property_matching = 0 //  run_property_matching.sh runs all of the torch scripts except geocode_attom.
-    *local attom_geocoded            =0 // attach Census geocode to the full ATTOM property records
-    *local attom_nfhl                 =0// spatial join geocoded-attom to NFHL flood zones (Wagner)
-    *local attom_onto_permits        =0 //put an ATTOM property value onto every Builty elevation permit
-    *local elev_flag_onto_attom     =0 // merge Builty elevation flags onto the geocoded-flood zone- attom universe
-    *local assign_attom_to_nfip_property = 0 //merge ATTOM with NFIP using the matching tiers
+// v) Descriptives
+local summary_stats                     = 0 // create summary statistics table
 
-local parquet_dta = 0 //convert the ATTOM-NFIP parquet file to Stata
-local final_analysis = 0 //merge results onto analysis.dta to create final two versions of the dataset
-
-
-// iv) Descriptives
-local summary_stats = 0 //run the summary descriptives do file that produces an excel file
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
 * -----------------------------------------------------------------------------
 
-// i) Clean
+// i) Prepare
 if `import_dewey' == 1 {
-    shell `python' "`code'/clean/import_dewey.py" ///
+    shell `python' "`code'/prepare/import_dewey.py" ///
         --data "`data'" ///
         --manifest "`dewey_manifest'" ///
         --run-id "`dewey_run_id'"
 }
-
 if `extract_nfip_policies' == 1 {
-    shell `python' "`code'/clean/extract_nfip_policies.py" --data "`data'" --states "`states'"
+    shell `python' "`code'/prepare/extract_nfip_policies.py" --data "`data'" --states "`states'"
 }
 if `extract_builty' == 1 {
-    shell `python' "`code'/clean/extract_builty.py" --data "`data'" --states "`states'"
+    shell `python' "`code'/prepare/extract_builty.py" --data "`data'" --states "`states'"
 }
 if `extract_attom' == 1 {
-    shell `python' "`code'/clean/extract_attom.py" ///
+    shell `python' "`code'/prepare/extract_attom.py" ///
         --data "`data'" ///
         --manifest "`dewey_manifest'" ///
         --run-id "`dewey_run_id'"
 }
+if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resume-safe
+    foreach state of local states {
+        shell `python' "`code'/prepare/geocode_attom.py" --data "`data'" --state "`state'"
+    }
+}
+
+// ii) Clean
 if `crosswalks' == 1 {
     do "`code'/clean/crosswalks.do" "`data'"
 }
@@ -124,7 +131,7 @@ if `clean_nfip_multiple_loss' == 1 {
     do "`code'/clean/clean_nfip_multiple_loss.do" "`data'"
 }
 
-// ii) Build
+// iii) Build
 if `prep_fma' == 1 {
     do "`code'/build/prep_fma.do" "`data'"
 }
@@ -138,33 +145,12 @@ if `complete' == 1 {
     do "`code'/build/complete.do" "`data'"
 }
 
-/*
-if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resume-safe
-    foreach state of local states {
-        local st = lower("`state'")
-        shell mkdir -p "`data'/build/attom_geocode/`st'_addr/chunks" ///
-            "`data'/build/attom_geocode/`st'_addr/results" ///
-            "`data'/build/attom_geocode/`st'_addr/duckdb_tmp"
-        shell `python' "`code'/build/geocode_attom.py" --data "`data'" --state "`state'"
-    }
+// iv) Build (Anna)
+if `geocode_builty' == 1 {
+    shell `python' "`code'/build/geocode_builty.py" --data "`data'"
 }
-
-if `run_property_matching' == 1 {
-    shell mkdir -p ///
-        "`data'/build/nfip_attom_pipeline_v2/geocoded" ///
-        "`data'/build/nfip_attom_pipeline_v2/nfhl_matches" ///
-        "`data'/build/nfip_attom_pipeline_v2/builty_attom" ///
-        "`data'/build/nfip_attom_pipeline_v2/elev_flag_onto_attom" ///
-        "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property"
-
+if `merge_datasets' == 1 {
     foreach state of local states {
-        local st = lower("`state'")
-
-        shell mkdir -p ///
-            "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/geocoded" ///
-            "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/builty" ///
-            "`data'/build/nfip_attom_pipeline_v2/tmp/`st'/assignment"
-
         shell bash "`code'/slurm/run_property_matching.sh" ///
             --state "`state'" ///
             --data "`data'" ///
@@ -173,25 +159,19 @@ if `run_property_matching' == 1 {
             --threads 4
     }
 }
-*/
 if `parquet_dta' == 1 {
-    shell mkdir -p "`data'/build/nfip_attom_property"
-
     foreach state of local states {
         local st = lower("`state'")
-
         shell `python' "`code'/build/parquet_dta.py" ///
             --input "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet" ///
             --output "`data'/build/nfip_attom_property/`st'_nfip_attom_property.dta"
     }
 }
-
-if `final_analysis' == 1 {
-    do "`code'/build/final_analysis.do" "`data'" "`states'"
+if `final_data' == 1 {
+    do "`code'/build/final_data.do" "`data'" "`states'"
 }
 
+// v) Descriptives
 if `summary_stats' == 1 {
-    shell mkdir -p "`output'/descriptives"
     do "`code'/descriptives/summary_table.do" "`data'" "`output'"
 }
-
