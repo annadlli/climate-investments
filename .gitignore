@@ -15,3 +15,6 @@ archive/
 
 # Data lives in Dropbox, never in the repo
 data/
+
+# Stata batch logs
+*.log

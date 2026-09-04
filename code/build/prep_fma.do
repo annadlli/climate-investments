@@ -36,15 +36,23 @@ gen spend = fma_spend * (n_properties_rec / n_logged)
 // Note: bcr is a record-weighted mean, so projects count in proportion to rows
 // Note: county is firstnm, so it is arbitrary for the 33 zips that cross counties
 egen proj_tag = tag(zip project_identifier)
-collapse (sum) n_grants = proj_tag ///
-               n_properties = n_properties_rec fma_spend = spend ///
-         (mean) bcr = bcr ///
-         (min) year_min = obligation_year ///
-         (max) year_max = year_closed ///
+collapse (sum) fma_n_grants = proj_tag ///
+               fma_n_properties = n_properties_rec fma_spend = spend ///
+         (mean) fma_bcr = bcr ///
+         (min) fma_year_min = obligation_year ///
+         (max) fma_year_max = year_closed ///
          (firstnm) state state_code county county_code, by(zip)
 
 * Create merge variables
 ren zip zipcode 
+
+* Label
+label var fma_n_grants     "FMA elevation grants (projects) in ZIP"
+label var fma_n_properties "Properties elevated under FMA grants in ZIP"
+label var fma_spend        "FMA elevation spending in ZIP (2023 $)"
+label var fma_bcr          "Mean benefit-cost ratio of FMA grants in ZIP"
+label var fma_year_min     "First FMA obligation year in ZIP"
+label var fma_year_max     "Last FMA grant closure year in ZIP"
 
 * Save
 order state state_code county county_code zipcode
@@ -72,16 +80,24 @@ gen n_props = cond(project_merge == 2, n_properties, n_properties_rec)
 
 * Collapse to county level (pooling projects and years)
 egen proj_tag = tag(state_code county_code project_identifier)
-collapse (sum) n_grants = proj_tag ///
-               n_properties = n_props fma_spend = spend ///
-         (mean) bcr = bcr ///
-         (min) year_min = obligation_year ///
-         (max) year_max = year_closed ///
+collapse (sum) fma_n_grants = proj_tag ///
+               fma_n_properties = n_props fma_spend = spend ///
+         (mean) fma_bcr = bcr ///
+         (min) fma_year_min = obligation_year ///
+         (max) fma_year_max = year_closed ///
          (firstnm) state county, by(state_code county_code)
 
 * Create merge variables
 gen countycode = string(state_code, "%02.0f") + string(county_code, "%03.0f")
 drop county_code
+
+* Label
+label var fma_n_grants     "FMA elevation grants (projects) in county"
+label var fma_n_properties "Properties elevated under FMA grants in county"
+label var fma_spend        "FMA elevation spending in county (2023 $)"
+label var fma_bcr          "Mean benefit-cost ratio of FMA grants in county"
+label var fma_year_min     "First FMA obligation year in county"
+label var fma_year_max     "Last FMA grant closure year in county"
 
 * Save
 order state state_code county countycode

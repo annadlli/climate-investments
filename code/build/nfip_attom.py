@@ -133,9 +133,8 @@ def risk(series: pd.Series) -> pd.Series:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", required=True)
-    p.add_argument("--properties", required=True, help="clean/nfip_policies_property.dta")
-    p.add_argument("--state-policies", required=True,
-                   help="Policy panel fallback for property files that predate retained *_init keys.")
+    p.add_argument("--properties", required=True,
+                   help="clean/nfip_policies_property.dta (first-policy-year snapshot, all states)")
     p.add_argument("--attom", required=True, help="{state}_attom_geocoded.parquet")
     p.add_argument("--attom-nfhl-builty", required=True)
     p.add_argument("--out", required=True)
@@ -146,86 +145,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--add-tier-15", action="store_true",
                    help="Add the block group x flood zone fallback that ignores construction "
                         "year, and let year-less ATTOM properties into the pool to reach it.")
-    p.add_argument("--snapshot-mode", choices=["initial", "nfhl"], default="initial",
-                   help="Use the initial NFIP policy or the policy closest to the NFHL vintage.")
-    p.add_argument("--nfhl-snapshot-year", type=int,
-                   help="Required with --snapshot-mode nfhl.")
     p.add_argument("--memory", default="64GB")
     p.add_argument("--threads", type=int, default=4)
     return p.parse_args()
 
 
-def initial_policy_snapshot(frame: pd.DataFrame, state_policies: str) -> pd.DataFrame:
-    # older property files lack the *_init columns -- rebuild from each
-    # property's first policy year
-    columns = ["property_id", "policy_year", "zipcode", "censusblockgroupfips",
-               "flood_zone", "post_firm", "countycode", "nfipratedcommunitynumber"]
-    policy = pd.read_stata(state_policies, convert_categoricals=False, columns=columns)
-    initial = (policy.sort_values(["property_id", "policy_year"])
-               .drop_duplicates("property_id", keep="first")
-               .rename(columns={"property_id": "property_id_state",
-                                "policy_year": "policy_year_init_check"}))
-
-    # property file has global IDs, policy panel has state ones.
-    # both sort the same way, so pair by position
-    base = ["property_id", "state", "construction_year", "policy_year_init"]
-    if "property_id_state" not in frame:
-        frame = frame.merge(
-            pd.DataFrame({"property_id_state": sorted(initial["property_id_state"].unique()),
-                          "property_id": sorted(frame["property_id"].unique())}),
-            on="property_id", validate="one_to_one")
-    frame = frame[base + ["property_id_state"]].merge(
-        initial, on="property_id_state", how="left", validate="one_to_one")
-    return frame.drop(columns="policy_year_init_check")
-
-
-def load_properties(path: str, state_policies: str, state: str,
-                    snapshot_mode: str = "initial",
-                    nfhl_snapshot_year: int | None = None) -> pd.DataFrame:
-    # one row per NFIP property, as at its first policy year
-    if snapshot_mode == "nfhl":
-        if nfhl_snapshot_year is None:
-            raise ValueError("--nfhl-snapshot-year is required for NFHL snapshot matching")
-        columns = ["property_id", "policy_year", "construction_year", "zipcode",
-                   "censusblockgroupfips", "flood_zone", "post_firm",
-                   "countycode", "nfipratedcommunitynumber"]
-        frame = pd.read_stata(state_policies, convert_categoricals=False, columns=columns)
-        frame.columns = [str(c).lower() for c in frame.columns]
-        frame["policy_year"] = pd.to_numeric(frame["policy_year"], errors="coerce")
-        frame["policy_year_init"] = frame.groupby("property_id")["policy_year"].transform("min")
-        frame["snapshot_year_gap"] = (frame["policy_year"] - nfhl_snapshot_year).abs()
-        # earlier year wins an equal-distance tie
-        frame = (frame.sort_values(["property_id", "snapshot_year_gap", "policy_year"])
-                 .drop_duplicates("property_id", keep="first")
-                 .rename(columns={"property_id": "property_id_state",
-                                  "policy_year": "matching_policy_year"}))
-        frame["state"] = state.upper()
-        frame["property_id"] = (
-            state.upper() + "_" + frame["property_id_state"].astype("string")
-            .str.replace(r"\.0$", "", regex=True)
-        )
-        frame["nfhl_snapshot_year"] = nfhl_snapshot_year
-    else:
-        frame = pd.read_stata(path, convert_categoricals=False)
-        frame.columns = [str(c).lower() for c in frame.columns]
-        frame = frame.loc[frame["state"].astype(str).str.upper().eq(state.upper())].copy()
-
-        # prefer the *_init snapshot from prep_nfip_policies.do
-        base = ["property_id", "state", "construction_year", "policy_year_init"]
-        init_map = {"zipcode_init": "zipcode",
-                    "censusblockgroupfips_init": "censusblockgroupfips",
-                    "flood_zone_init": "flood_zone",
-                    "post_firm_init": "post_firm",
-                    "countycode_init": "countycode",
-                    "nfipratedcommunitynumber_init": "nfipratedcommunitynumber"}
-        if all(c in frame.columns for c in init_map):
-            keep = base + (["property_id_state"] if "property_id_state" in frame else []) + list(init_map)
-            frame = frame[keep].rename(columns=init_map)
-        else:
-            frame = initial_policy_snapshot(frame, state_policies)
-        frame["matching_policy_year"] = frame["policy_year_init"]
-        frame["nfhl_snapshot_year"] = pd.NA
-        frame["snapshot_year_gap"] = pd.NA
+def load_properties(path: str, state: str) -> pd.DataFrame:
+    # one row per NFIP property as of its first policy year, built by
+    # prep_nfip_policies.do (Section 2). All states in one file; filter to this one.
+    columns = ["property_id", "property_id_state", "state", "construction_year",
+               "policy_year_init", "zipcode", "censusblockgroupfips", "countycode",
+               "nfipratedcommunitynumber", "flood_zone", "post_firm"]
+    frame = pd.read_stata(path, convert_categoricals=False, columns=columns)
+    frame = frame.loc[frame["state"].astype(str).str.upper().eq(state.upper())].copy()
+    frame["matching_policy_year"] = frame["policy_year_init"]
 
     # one row per property, or nothing downstream is 1:1
     if frame["property_id"].duplicated().any():
@@ -422,11 +355,7 @@ def main() -> None:
     state = args.state.upper()
 
     # NFIP properties for this state
-    properties = load_properties(
-        args.properties, args.state_policies, state,
-        snapshot_mode=args.snapshot_mode,
-        nfhl_snapshot_year=args.nfhl_snapshot_year,
-    )
+    properties = load_properties(args.properties, state)
     print(f"{state}: {len(properties):,} NFIP properties")
 
     con = duckdb.connect()

@@ -170,7 +170,7 @@ replace assigned_attomid = "" if missing(assigned_attomid)
 gen byte attom_matched = (assigned_attomid != "")
 
 * The policy panels use a state-specific property identifier. Name it
-* explicitly so this crosswalk can merge onto analysis.dta by
+* explicitly so this crosswalk can merge onto nfip_hma_panel.dta by
 * state + property_id_state without confusing it with the global ID.
 rename property_id property_id_state
 

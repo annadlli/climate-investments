@@ -17,10 +17,10 @@ Flood-mitigation home elevations + how FEMA mitigation funding is allocated vs p
 flood risk. Stata (`.do`) + Python (`.py`, `.ipynb`). Econ PhD work; collaborator: Anna Li.
 
 **Scope:** NFIP policies and FEMA FMA run over the 20 sample states (`local states` in `master.do`).
-ATTOM now covers all 20 too (value cells for 20 states; Census-geocoded parquets for 8; property-Wagner
-links for 18 — ME/MS pending). The active pipeline builds stable NFIP-property identifiers, links ATTOM
-to those properties through the Wagner cells, and finalizes the property-level analysis input;
-`compile2.do` (Vendela) is the cell-level alternative, kept live until item 1 in TODO.md is settled.
+ATTOM and Builty cover all 20 too (property links for all 20 as of Aug 31). The active pipeline is one
+route (settled 2026-09-03; `compile2.do` deleted, `final_data.do` archived): `clean_nfip_policies` →
+`prep_nfip_policies` (panel + first-policy-year snapshot) → `merge_nfip_fma` (claims, multiple-loss,
+county FMA) → `complete` (Builty coverage restriction + ATTOM/Builty property links).
 
 ## Code and data are decoupled
 
@@ -48,16 +48,17 @@ clean/clean_cpi.do                -> clean/cpi.dta                       (annual
 clean/clean_fma.do                -> clean/fma_elevation.dta             (FMA single-family elevations)
 clean/clean_builty.do             -> clean/builty_states/builty_elevations_{st}.dta  (per-state, screened to true elevations)
                                      + clean/builty_elevations.dta        (appended, collapsed to property level)
+clean/geocode_builty.py           -> clean/builty_elevations_zipfilled.dta  (Census geocoder fills missing ZIPs; permits input to matching)
+clean/clean_builty_coverage.py    -> clean/builty_coverage_{county,zip}.dta  (all-permit counts by county/ZIP x year; builty_covered flag)
 clean/clean_nfip_policies.do      -> clean/nfip_policies_state/{st}.dta  (policy-year level, per state)
 clean/clean_nfip_claims.do        -> clean/nfip_claims_panel.dta + clean/nfip_claims_property.dta  (property-year, property)
 clean/clean_nfip_multiple_loss.do -> clean/nfip_multiple_loss.dta
 build/prep_fma.do                 -> clean/fma_zip.dta + clean/fma_county.dta
-build/prep_nfip_policies.do       -> clean/nfip_policies_panel.dta + clean/nfip_policies_property.dta  (property-year, property)
-build/compile.do                  -> analysis/analysis.dta               (property-level analysis set)
-build/geocode_builty.py           -> build/builty_elevations_zipfilled.dta (Census geocoder; permits input to matching)
+build/prep_nfip_policies.do       -> clean/nfip_policies_panel.dta + clean/nfip_policies_property.dta  (panel; first-policy-year snapshot = only NFIP input to the matcher)
+build/merge_nfip_fma.do           -> build/nfip_hma_panel.dta             (NFIP property-year panel + claims, multiple-loss, FMA)
 slurm/run_property_matching.sh    -> build/nfip_attom_pipeline_v2/...     (ATTOM geocode/NFHL/Builty/property matching jobs)
 build/parquet_dta.py              -> build/nfip_attom_property/{st}_nfip_attom_property.dta
-build/final_data.do               -> analysis/analysis_no_diagnostics.dta  (+ build/nfip_attom_property_links.dta)
+build/complete.do                 -> analysis/analysis.dta                 (property-year analysis set: panel + ATTOM/Builty links)
 descriptives/summary_table.do     -> ../output/tables/summary_table.{dta,xlsx}  (summary_stats switch)
 build/alternates/attom_value_cells.py -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
                                      (.sh = Torch/SLURM wrapper)
@@ -66,17 +67,20 @@ build/alternates/attom_value_cells.py -> build/{state}_attom_value_{zip,county}_
 `clean_fma.do` builds the FMA universe from **two** FEMA files: HMA Mitigated Properties (record level,
 carries ZIP) with HMA Projects merged in `m:1` on `projectidentifier` (carries dollars, BCR, status).
 The merge doubles as the funding screen — MitProps logs properties for applications that were never
-funded, so the Projects status filter is what removes them. `prep_fma.do` then pools grants to ZIP
-(primary) and county (fallback).
+funded, so the Projects status filter is what removes them. `prep_fma.do` then pools grants to ZIP and
+county; `merge_nfip_fma.do` merges the county grain (covers all grants), ZIP stays as a finer option.
 
 `attom_value_cells.py` aggregates raw ATTOM to ZIP/county × construction-year/decade value
 cells — NFIP has no street address, so these merge property values onto the NFIP universe by cell.
 
 `clean_builty.do` screens each state to true home elevations (Section 1 → `builty_states/`), then
 appends and collapses them to the property level (`clean/builty_elevations.dta`, keyed on
-`street_address`). Because Builty carries an exact address, the plan (Anna) is to join it to **ATTOM
-1:1 on `street_address`**, then reach NFIP from the ATTOM side via the Wagner cell — not the zip/county
-pool. The Gen-1 Builty chain (`build_builty_filter` / `build_split_builty_states` /
+`street_address`). Because Builty carries an exact address, it is joined to **ATTOM 1:1 on
+`street_address`** (`attom_builty.py`, cluster), and reaches NFIP from the ATTOM side via the Wagner
+cell — not a zip/county pool. Builty's permit feeds are patchy (322 of ~1,100 counties report anything),
+so `clean_builty_coverage.py` counts all raw permits by county-year and `complete.do` restricts the
+panel to covered county-years: outside them an unmatched property is unobserved, not unelevated. The
+Gen-1 Builty chain (`build_builty_filter` / `build_split_builty_states` /
 `build_attom_onto_permits` / `build_fma_onto_builty_attom` / `parquetdta` / `build_nfip_hma_panels`)
 is **superseded and archived in `build/archive/`** — not the current path.
 
@@ -112,9 +116,9 @@ and `build/archive/`).
 ## Merge logic & eligible universe
 
 Each source contributes distinct columns: **NFIP policies** = elevation status/measures + insurance &
-flood-zone context; **ATTOM** = exact address + property valuation; **FMA** = federal funding, pooled
-to **ZIP (primary) and county (fallback)** — its finest geography is ZIP, and grants FEMA never logged
-at property level carry no ZIP at all, so they exist only at county; **Builty** = permit-level
+flood-zone context; **ATTOM** = exact address + property valuation; **FMA** = federal funding, merged at
+**county** — its finest geography is ZIP, but grants FEMA never logged at property level carry no ZIP
+at all, so only county covers every grant (ZIP kept as a finer option); **Builty** = permit-level
 elevation events carrying an exact address, so joined to **ATTOM 1:1 on `street_address`** (Anna),
 then to NFIP from the ATTOM side. NFIP carries no exact address (lat/long are coarsened to ~1 decimal), so it is joined
 by **fuzzy Wagner cells, not 1:1**. The relevant match is Wagner's **property match**

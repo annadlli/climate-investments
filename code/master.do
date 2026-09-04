@@ -10,6 +10,7 @@ Description: Runs the data-construction pipeline for the climate-investments
 version 18
 clear all
 set more off
+set seed 20260903
 
 * -----------------------------------------------------------------------------
 * Paths 
@@ -26,7 +27,7 @@ local data "/Users/anna/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
 local python "/opt/anaconda3/bin/python" */
 
 * --- Derived (same for everyone) ---
-local output "`code'/../output" // repo-root sibling of code/: tables/ and figures/
+local output "`code'/../output" 
 
 * -----------------------------------------------------------------------------
 * Locals
@@ -56,25 +57,23 @@ local crosswalks                        = 0 // create geographic crosswalks
 local clean_cpi                         = 0 // clean CPI deflator data
 local clean_fma                         = 0 // clean FEMA FMA data
 local clean_builty                      = 0 // clean Builty permits data
-local clean_nfip_policies               = 1 // clean NFIP policies data
+local geocode_builty                    = 0 // geocode cleaned Builty data to fill in missing ZIP codes
+local clean_builty_coverage             = 0 // prepare Builty permit coverage flag
+local clean_nfip_policies               = 0 // clean NFIP policies data
 local clean_nfip_claims                 = 0 // clean NFIP claims data
 local clean_nfip_multiple_loss          = 0 // clean NFIP multiple-loss data
 
-// iii) Build (Vendela -- to be harmonized)
+// iii) Build 
 local prep_fma                          = 0 // collapse FMA across years to zip/county level
-local prep_nfip_policies                = 1 // append NFIP policy data; collapse to property level
-local compile                           = 0 // compile property-level analysis dataset
-local complete                          = 0 // prepares final analysis dataset
-
-// iv) Build (Anna)
-local geocode_builty                    = 0 // geocode Builty to fill missing ZIP codes
+local prep_nfip_policies                = 0 // append NFIP policy data across states; collapse to property level for the ATTOM match
+local merge_nfip_fma                    = 0 // merge NFIP policies, claims, multiple-loss data & HMA data
 local merge_datasets                    = 0 // runs all of the torch scripts except geocode_attom.
     // local attom_geocode                  = 0 // merge geocoded Census block group to full ATTOM property records
     // local attom_nfhl                     = 0 // merge Attom w/ NFHL flood zone data
     // local attom_builty                   = 0 // merge Attom w/ Builty 
     // local nfip_attom                     = 0 // merge ATTOM with NFIP using the matching tiers
 local parquet_dta                       = 0 // convert parquet file to Stata
-local final_data                        = 0 // merge results onto analysis.dta to create final two versions of the dataset
+local complete                          = 1 // compile final analysis dataset
 
 // v) Descriptives
 local summary_stats                     = 0 // create summary statistics table
@@ -121,6 +120,12 @@ if `clean_fma' == 1 {
 if `clean_builty' == 1 {
     do "`code'/clean/clean_builty.do" "`data'" "`states'"
 }
+if `geocode_builty' == 1 {
+    shell `python' "`code'/clean/geocode_builty.py" --data "`data'"
+}
+if `clean_builty_coverage' == 1 {
+    shell `python' "`code'/clean/clean_builty_coverage.py" --data "`data'" --states "`states'"
+}
 if `clean_nfip_policies' == 1 {
     do "`code'/clean/clean_nfip_policies.do" "`data'" "`states'"
 }
@@ -138,17 +143,14 @@ if `prep_fma' == 1 {
 if `prep_nfip_policies' == 1 {
     do "`code'/build/prep_nfip_policies.do" "`data'" "`states'"
 }
-if `compile' == 1 {
-    do "`code'/build/compile.do" "`data'" "`states'"
+if `merge_nfip_fma' == 1 {
+    do "`code'/build/merge_nfip_fma.do" "`data'"
 }
 if `complete' == 1 {
-    do "`code'/build/complete.do" "`data'"
+    do "`code'/build/complete.do" "`data'" "`states'"
 }
 
 // iv) Build (Anna)
-if `geocode_builty' == 1 {
-    shell `python' "`code'/build/geocode_builty.py" --data "`data'"
-}
 if `merge_datasets' == 1 {
     foreach state of local states {
         shell bash "`code'/slurm/run_property_matching.sh" ///
@@ -166,9 +168,6 @@ if `parquet_dta' == 1 {
             --input "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet" ///
             --output "`data'/build/nfip_attom_property/`st'_nfip_attom_property.dta"
     }
-}
-if `final_data' == 1 {
-    do "`code'/build/final_data.do" "`data'" "`states'"
 }
 
 // v) Descriptives

@@ -59,14 +59,6 @@ def address_key(street: pd.Series, city: pd.Series, state: pd.Series) -> pd.Seri
     return joined.map(lambda value: hashlib.md5(value.encode("utf-8")).hexdigest()[:16])
 
 
-def lookup_key(street: pd.Series, state: pd.Series) -> pd.Series:
-    # Used for matching on normalized street + state when the broader Builty file is  backup
-    normalized_street = (clean_text(street).str.lower()
-                         .str.replace(r"[^a-z0-9 ]", " ", regex=True)
-                         .str.replace(r"\s+", " ", regex=True).str.strip())
-    return normalized_street + "|" + clean_text(state).str.lower()
-
-
 def clean_street_for_census(street: object, city: object, state: object) -> str:
     # Strip the extra notes that Builty sometimes adds to the address line.
     value = re.sub(r"\s+", " ", str(street or "").replace("\r", " ").replace("\n", " ")).strip()
@@ -203,7 +195,7 @@ def main() -> None:
     data = Path(args.data)
     input_path = Path(args.input) if args.input else data / "clean" / "builty_elevations.dta"
     output_path = (Path(args.output) if args.output else
-                   data / "build" / "builty_elevations_zipfilled.dta")
+                   data / "clean" / "builty_elevations_zipfilled.dta")
     work = data / "build" / "builty_zip_geocode"
     work.mkdir(parents=True, exist_ok=True)
 
@@ -294,55 +286,6 @@ def main() -> None:
     fill = frame["zipcode"].eq("") & padded_zip.ne("")
     frame.loc[fill, "zipcode"] = padded_zip[fill]
     frame.loc[fill, "zipcode_source"] = "address_text_padded"
-
-    # Local backfill: if the same normalized street+state only ever maps to one ZIP in
-    # the broader Builty file, use that as the answer.
-    candidate_path = data / "build" / "all_builty_elevations.dta"
-    if candidate_path.exists():
-        candidate_records = pd.read_stata(
-            candidate_path,
-            convert_categoricals=False,
-            columns=["APN", "STATE", "STREET_ADDRESS", "ZIPCODE"],
-        )
-        candidate_records["lookup_key"] = lookup_key(
-            candidate_records["STREET_ADDRESS"], candidate_records["STATE"]
-        )
-        candidate_records["lookup_zip"] = valid_zip(candidate_records["ZIPCODE"])
-        candidates = candidate_records.loc[
-            candidate_records["lookup_zip"].ne(""), ["lookup_key", "lookup_zip"]
-        ].drop_duplicates()
-        zip_counts = candidates.groupby("lookup_key")["lookup_zip"].nunique()
-        candidates = candidates[
-            candidates["lookup_key"].isin(zip_counts[zip_counts.eq(1)].index)
-        ].drop_duplicates("lookup_key")
-        frame["lookup_key"] = lookup_key(frame["street_address"], frame["state"])
-        frame = frame.merge(candidates, on="lookup_key", how="left")
-        fill = frame["zipcode"].eq("") & frame["lookup_zip"].fillna("").ne("")
-        frame.loc[fill, "zipcode"] = frame.loc[fill, "lookup_zip"]
-        frame.loc[fill, "zipcode_source"] = "builty_lookup"
-        frame.drop(columns=["lookup_key", "lookup_zip"], inplace=True)
-
-        if "apn" in frame.columns:
-            # Raw permit inputs carry assessor identifiers; use them only when
-            # every candidate under the state+APN reports one ZIP.
-            candidate_records["apn_key"] = (
-                clean_text(candidate_records["APN"]) + "|" + clean_text(candidate_records["STATE"])
-            )
-            apn_candidates = candidate_records.loc[
-                candidate_records["lookup_zip"].ne("")
-                & ~candidate_records["apn_key"].str.startswith("|"),
-                ["apn_key", "lookup_zip"],
-            ].drop_duplicates()
-            apn_counts = apn_candidates.groupby("apn_key")["lookup_zip"].nunique()
-            apn_candidates = apn_candidates[
-                apn_candidates["apn_key"].isin(apn_counts[apn_counts.eq(1)].index)
-            ].drop_duplicates("apn_key")
-            frame["apn_key"] = clean_text(frame["apn"]) + "|" + clean_text(frame["state"])
-            frame = frame.merge(apn_candidates, on="apn_key", how="left")
-            fill = frame["zipcode"].eq("") & frame["lookup_zip"].fillna("").ne("")
-            frame.loc[fill, "zipcode"] = frame.loc[fill, "lookup_zip"]
-            frame.loc[fill, "zipcode_source"] = "builty_apn_lookup"
-            frame.drop(columns=["apn_key", "lookup_zip"], inplace=True)
 
     # Manual review file, if present, can override the remaining unresolved ZIPs.
     override_path = work / "manual_builty_zip_overrides.csv"

@@ -50,11 +50,7 @@ foreach st of local states {
     // ii) Construction year 
     gen construction_year = real(substr(originalconstructiondate, 1, 4))
     // iii) Approximate property id
-    // egen property_id = group(zipcode construction_year flood_zone nfipratedcommunitynumber) // (following Wagner, 2021) 
-    gen geo_key = cond(missing(censusblockgroupfips) | censusblockgroupfips == "", ///
-        "z" + zipcode, "b" + censusblockgroupfips)
-    egen property_id = group(geo_key originalconstructiondate originalnbdate)
-    drop geo_key
+    egen property_id = group(censusblockgroupfips originalconstructiondate originalnbdate)
     // iv) SFHA (Special Flood Hazard Area )
     gen sfha = inlist(substr(flood_zone, 1, 1), "A", "V") if !mi(flood_zone) 
     // v) Risk Rating 2.0 
@@ -72,9 +68,8 @@ foreach st of local states {
     destring elevated primary_residence post_firm premium policy_cost coverage_building, replace
 
     * Drop if property cannot be identified 
-    drop if missing(property_id)
-    replace construction_year = . if !inrange(construction_year, 1700, 2027)
-    drop if mi(construction_year)
+    drop if mi(censusblockgroupfips) | mi(originalconstructiondate) | mi(originalnbdate)
+    drop if !inrange(construction_year, 1700, 2027)
 
     * Clean variables 
     // i) Elevations must be monotonic within property over time
@@ -128,7 +123,7 @@ foreach st of local states {
     label var flood_zone               "NFIP rated flood zone"
     label var sfha                     "In SFHA (rated zone A/V)"
     label var post_firm                "Post-FIRM construction"
-    label var elevated                 "Elevated home"
+    label var elevated                 "Elevated home (NFIP)"
     label var primary_residence        "Primary residence"
     label var premium                  "Total insurance premium (2023 $)"
     label var policy_cost              "Policy cost incl. fees and surcharges (2023 $)"

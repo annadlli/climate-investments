@@ -393,7 +393,7 @@ def main() -> None:
     state = args.state.upper()
     data = Path(args.data)
 
-    permits_path = Path(args.permits) if args.permits else data / "build" / "builty_elevations_zipfilled.dta"
+    permits_path = Path(args.permits) if args.permits else data / "clean" / "builty_elevations_zipfilled.dta"
     attom_input = args.attom or str(data / "raw" / "attom" / f"attom_{state.lower()}.parquet")
     out_path = Path(args.out) if args.out else data / "build" / f"{state.lower()}_attom_builty.parquet"
     permits_out = Path(args.permits_out) if args.permits_out else data / "build" / f"{state.lower()}_attom_permits.parquet"

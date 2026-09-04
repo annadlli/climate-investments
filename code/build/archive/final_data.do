@@ -3,9 +3,9 @@ Authors: Anna Li
 Date: 2026-08-19
 
 Description: Last step of the pipeline. Appends the 20 state link files from
-    the matching run and merges them onto analysis.dta.
+    the matching run and merges them onto nfip_hma_panel.dta.
 
-    analysis.dta stays the master: every NFIP property survives, matched or not,
+    nfip_hma_panel.dta stays the master: every NFIP property survives, matched or not,
     and no ATTOM-only or Builty-only rows are added.
 
 ******************************************************************************/
@@ -38,8 +38,8 @@ di as txt "linked NFIP properties: " as res %12.0fc r(N)
 save `links'
 
 * 2. Merge onto the NFIP-base analysis file
-* analysis.dta is the master -- load it first, note the row count, and check after merge
-use "`data'/analysis/analysis.dta", clear
+* nfip_hma_panel.dta is the master -- load it first, note the row count, and check after merge
+use "`data'/build/nfip_hma_panel.dta", clear
 qui count
 local before = r(N)
 
@@ -78,7 +78,7 @@ label var attom_assessed_improvements     "ATTOM improvement assessed value"
 label var attom_previous_assessed_value   "ATTOM previous total assessed value"
 label var attom_last_sale_price           "ATTOM last recorded sale price"
 
-* the appended links on their own, without analysis.dta attached
+* the appended links on their own, without nfip_hma_panel.dta attached
 preserve
     use `links', clear
     compress

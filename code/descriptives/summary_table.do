@@ -2,7 +2,8 @@
 Authors: Anna Li and Vendela Norman
 Date: 2026-09-02
 
-Description: Summary statistics table for the NFIP property analysis set.
+Description: Summary statistics table for the NFIP property-year analysis set
+    (analysis/analysis.dta from complete.do).
     One row per variable, one column per statistic. Add a variable to a list
     at the top to add a row. Dollar variables are in 2023 dollars, deflated
     upstream in the cleaners.
@@ -18,14 +19,14 @@ local vars policy_year_init sfha post_firm primary_residence ///
     nfip_rl nfip_srl ///
     attom_matched attom_value ///
     builty_elevated builty_elevation_year ///
-    fma_n_grants_zip fma_spend_zip
+    fma_n_grants fma_spend
 local vars_builty builty_project_value
 local stats N mean sd min p50 max
 
 * -----------------------------------------------------------------------------
 
 * Import data
-use "`data'/analysis/analysis_no_diagnostics.dta", clear
+use "`data'/analysis/analysis.dta", clear
 
 * Create derived variables
 // Note: ATTOM logs zero where it holds no value, so zeros are treated as missing

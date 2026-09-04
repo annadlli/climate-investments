@@ -3,7 +3,7 @@
 # Authors: Anna Li
 # Date: 2026-08-25
 #
-# Runs the five matching steps that link Builty elevation permits and ATTOM
+# Runs the four matching steps that link Builty elevation permits and ATTOM
 # property records onto the NFIP property universe, for one state.
 
 set -euo pipefail
@@ -66,9 +66,8 @@ RAW_ATTOM="${DATA}/raw/attom/attom_${ST}.parquet"
 # holding the numbered state directories -- one level below raw/nfhl.
 NFHL_ROOT="${DATA}/raw/nfhl/nfhl"
 GEOCODE_WORK="${DATA}/build/attom_geocode/${ST}_addr"
-PERMITS="${DATA}/build/builty_elevations_zipfilled.dta"
+PERMITS="${DATA}/clean/builty_elevations_zipfilled.dta"
 PROPERTIES="${DATA}/clean/nfip_policies_property.dta"
-STATE_POLICIES="${DATA}/clean/nfip_policies_state/${ST}.dta"
 
 GEOCODED="${OUT_ROOT}/geocoded/${ST}_attom_geocoded.parquet"
 BLOCKGROUPS="${OUT_ROOT}/geocoded/${ST}_attom_blockgroups"
@@ -162,11 +161,10 @@ fi
 # tier requires and would otherwise drop.
 # -----------------------------------------------------------------------------
 if step_needed "4/4" "${FINAL}"; then
-    require "${PROPERTIES}" "${STATE_POLICIES}" "${GEOCODED}" "${BUILTY}"
+    require "${PROPERTIES}" "${GEOCODED}" "${BUILTY}"
     echo "[4/4] Assign SFR ATTOM candidates to NFIP properties"
     "${PYTHON}" "${CODE}/nfip_attom.py" \
-        --state "${STU}" --properties "${PROPERTIES}" \
-        --state-policies "${STATE_POLICIES}" --attom "${GEOCODED}" \
+        --state "${STU}" --properties "${PROPERTIES}" --attom "${GEOCODED}" \
         --attom-nfhl-builty "${BUILTY}" \
         --use-codes 376,380,382,383,385,386 \
         --add-tier-15 \

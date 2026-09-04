@@ -10,7 +10,7 @@ Description: Merge the alternate policy-year-consensus NFIP--ATTOM crosswalk
     clean file drops tier, cell, rank, collision, and intermediate matching
     variables, but retains substantive ATTOM values and Builty outcomes.
 
-Input  : {data}/analysis/analysis.dta
+Input  : {data}/build/nfip_hma_panel.dta
          {data}/build/nfip_attom_property_crosswalk_policy_v2.dta
 Output : {data}/analysis/analysis_nfip_attom_policy_consensus_diagnostics.dta
          {data}/analysis/analysis_nfip_attom_policy_consensus.dta
@@ -21,9 +21,9 @@ version 18
 args data
 
 * -----------------------------------------------------------------------------
-* Merge the alternate crosswalk; analysis.dta remains the master.
+* Merge the alternate crosswalk; nfip_hma_panel.dta remains the master.
 * -----------------------------------------------------------------------------
-use "`data'/analysis/analysis.dta", clear
+use "`data'/build/nfip_hma_panel.dta", clear
 qui count
 local before = r(N)
 
@@ -42,7 +42,7 @@ replace builty_elevated = . if attom_consensus_merge == 1
 replace builty_n_properties = . if attom_consensus_merge == 1
 
 * -----------------------------------------------------------------------------
-* Labels. Labels already present in analysis.dta survive because it is master.
+* Labels. Labels already present in nfip_hma_panel.dta survive because it is master.
 * -----------------------------------------------------------------------------
 label data "NFIP analysis with policy-year-consensus ATTOM link diagnostics"
 capture label var property_id                    "NFIP property identifier across states"

@@ -129,7 +129,7 @@ if `screen' == 1 {
             | ustrregexm(desc, "\b(block|lot|unit|plan|model|plex[a-z]*|swatch|farmhouse|craftsman)\b[^.]{0,30}elevation\b") ///
             | ustrregexm(desc, "elevation\b[^.]{0,25}\b(unit|block|lot)\b") ///
             | ustrregexm(desc, "elevation [a-z]{1,2}[0-9]+[a-z]*\b")
-        replace elevation = 0 if ustrregexm(desc, "\b(north|south|east|west|front|rear|side|left|right)\b[^.;]{0,15}elevation") ///
+        replace elevation = 0 if ustrregexm(desc, "\b(north|south|east|west|front|rear|back|side|left|right)\b[^.;]{0,15}elevation") ///
             | ustrregexm(desc, "elevation (north|south|east|west|front|rear|drawing|plan|view|sheet|detail)") ///
             | ustrregexm(desc, "no change in elevation")
         // Signs, banners, logos
@@ -153,9 +153,11 @@ if `screen' == 1 {
         // Negated determinations -- gated on STRONG (the stamp fakes act language)
         replace elevation = 0 if strong == 0 & ustrregexm(desc, ///
             "not a substantial improvement|no elevation certificate|elevation (certificate|verification)( is)? not|(pre|post).?firm structure|in zone x\b")
-        // Tree work ("oak tree ... lifting house"; "trim tree elevating over home")
+        // Tree work ("oak tree ... lifting house"; "trim tree elevating over home"; "raise canopy")
+        replace elevation = 0 if ustrregexm(subtype, "\btrees?\b|\bprun|arborist")
         replace elevation = 0 if strong == 0 & ustrregexm(desc, ///
-            "\b(oak|laurel|palm|pine|maple|magnolia) tree|tree removal|remov(e|al) [^.;]{0,15}tree|trim [^.;]{0,20}tree|arborist|\bstump\b")
+            "\b(oak|laurel|palm|pine|maple|magnolia) tree|tree removal|remov(e|al) [^.;]{0,15}tree|trim [^.;]{0,20}tree|arborist|\bstump\b" ///
+            + "|\btrees?\b[^.;]{0,25}(lift|lean|fell|fall|damag)|\bprun(e|ed|ing)\b|raise (the |up )?canopy|(trim|cut)[^.;]{0,15}\b(live )?(oaks?|palms?|pines?|branches)\b")
         // Like-for-like storm repairs (FL convention: stamped repair permits)
         replace elevation = 0 if strong == 0 & ustrregexm(desc, ///
             "size for size|re-?roof|tear off|reshingle")
