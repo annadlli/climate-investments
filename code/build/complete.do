@@ -20,7 +20,9 @@ foreach st of local states {
     local stl = strlower("`st'")
     append using "`data'/build/nfip_attom_property/`stl'_nfip_attom_property.dta", ///
         keep(state property_id_state assigned_attomid attom_value_year ///
-             attom_market_value_total builty_elevated builty_elevation_year)
+             attom_market_value_total builty_elevated builty_elevation_year ///
+             match_tier_number builty_retrofit builty_new_construction builty_geo_backfilled)
+             // Anna 09-06:  add in new variables: match tier + retrofit/new-construction flags
 }
 isid state property_id_state
 tempfile links
@@ -68,10 +70,15 @@ label var attom_market_value_total "ATTOM total market value (nominal, attom_val
 label var attom_value_year         "ATTOM tax year of the market value"
 label var builty_elevated          "Builty elevation permit on assigned ATTOM property"
 label var builty_elevation_year    "Earliest Builty elevation-permit year"
+label var match_tier_number        "NFIP-ATTOM match tier (1 = block group x zone x year ... 15)"
+label var builty_retrofit          "Builty permit elevates an existing structure"
+label var builty_new_construction  "Builty permit is elevated new construction"
+label var builty_geo_backfilled    "ATTOM coordinates/block group backfilled from Builty geocode"
 
 * Save 
 order builty_elevated, after(elevated)
-order attom_matched attom_market_value_total attom_value_year builty_elevation_year, ///
+order attom_matched attom_market_value_total attom_value_year builty_elevation_year ///
+    builty_retrofit builty_new_construction match_tier_number builty_geo_backfilled, ///
     after(cumulative_claims)
 sort state property_id policy_year
 compress

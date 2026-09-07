@@ -1,16 +1,16 @@
 /******************************************************************************
 Author: Vendela Norman
 Date: 2026-07-23
-
+Edited: 2026-09-06
 Description: Cleans the per-state Builty elevation permit data, restricting to 
     true elevations. 
-
+Revision: Added new_construction and retrofit flags to distinguish elevated new construction from retrofits.
 ******************************************************************************/
 
 args data states
 
 * Set switches
-local screen = 0 // screen by state for true elevations
+local screen = 1 // screen by state for true elevations 
 local clean  = 1 // clean and save final dataset
 
 * -----------------------------------------------------------------------------
@@ -188,13 +188,16 @@ if `screen' == 1 {
         // Lift stations; sewer/drain plumbing
         replace elevation = 0 if ustrregexm(desc, "lift station|lift-station")
         replace elevation = 0 if strong == 0 & ustrregexm(desc, "sewer (line|replacement)|drain (line|is)|septic")
-        // New construction built to code
-        replace elevation = 0 if strong == 0 & ( ///
-            ustrregexm(subtype, "new single family|new sfr|\bnsfr|new residence|new construction|new townhouse|building.?new|new.{0,10}residential|certificate of occupancy|residential model|(inside|outside)( of)? the floodplain") ///
-            | ustrregexm(desc, "new[- ]?(1|2|one|two)[^.;]{0,10}stor(y|ies)|new (single family|sfr|home|house|residence|dwelling|construction)|new [12]/s\b|new s/f\b|(new|modular) [^.;]{0,15}home elevated on|building a (new )?(single family|home|house|residence)|proposed (house|home|residence|dwelling)|model home"))
-
+        // New construction built to code -- flagged, not dropped
+       
         // v) Keep what survives
         keep if elevation == 1
+        // Anna 09-06: elevated new construction stays in the file with a new variable
+        gen new_construction = strong == 0 & ( ///
+            ustrregexm(subtype, "new single family|new sfr|\bnsfr|new residence|new construction|new townhouse|building.?new|new.{0,10}residential|certificate of occupancy|residential model|(inside|outside)( of)? the floodplain") ///
+            | ustrregexm(desc, "new[- ]?(1|2|one|two)[^.;]{0,10}stor(y|ies)|new (single family|sfr|home|house|residence|dwelling|construction)|new [12]/s\b|new s/f\b|(new|modular) [^.;]{0,15}home elevated on|building a (new )?(single family|home|house|residence)|proposed (house|home|residence|dwelling)|model home"))
+        // Anna 09-06: retrofit new variable created based on new construction
+        gen retrofit = new_construction == 0
         drop elevation act code strong structural subtype desc
 
         * Save
@@ -250,6 +253,7 @@ collapse (firstnm) fips_state fips_county zipcode locality cbsa fips_cbsa ///
     (min) year year_issued year_finaled year_submitted ///
     (max) project_value total_fees ///
     (max) fund_fema fund_hmgp fund_fma fund_sfha fund_bbb ///
+    (max) retrofit new_construction ///
     (sum) n_permits = one, by(state county street_address)
 
 * Merge in CPI and deflate nominal variables to 2023 dollars
@@ -289,10 +293,12 @@ label var total_fees     "Permit fees (2023 $)"
 label var status         "Permit status"
 label var n_permits      "Builty permits at this property"
 label var funding_type   "Funding source (from permit text)"
+label var retrofit         "Elevation permit on an existing structure (any permit)"
+label var new_construction "Elevated new construction (any permit)"
 
 * Save final dataset
 sort state county zipcode fips_cbsa street_address year
 order state fips_state county fips_county zipcode locality cbsa fips_cbsa street_address ///
-    year status funding_type
+    year status funding_type retrofit new_construction
 compress
 save "`data'/clean/builty_elevations.dta", replace

@@ -34,7 +34,8 @@ local output "`code'/../output"
 * -----------------------------------------------------------------------------
 
 // States 
-local states "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA"
+// narrowed it down here to the new four states
+local states "FL LA NJ TX"
 
 // Dewey/ATTOM acquisition inputs. The manifest is private because it contains
 // licensed Dewey endpoint URLs. extract_attom requires an existing run id.
@@ -73,10 +74,16 @@ local merge_datasets                    = 0 // runs all of the torch scripts exc
     // local attom_builty                   = 0 // merge Attom w/ Builty 
     // local nfip_attom                     = 0 // merge ATTOM with NFIP using the matching tiers
 local parquet_dta                       = 0 // convert parquet file to Stata
-local complete                          = 1 // compile final analysis dataset
+local attom_value_wide                  = 0 // ATTOM value by tax year, one row per property, 2023 $ (added 2026-09-06)
+local attom_value_dta                   = 0 // Stata copy of the value file, restricted to ATTOM properties linked to NFIP (after parquet_dta)
+local complete                          = 0 // compile final analysis dataset 
 
 // v) Descriptives
 local summary_stats                     = 0 // create summary statistics table
+local elevations_by_state               = 0 // count elevation retrofits by state in Builty and HMA (deck tab)
+
+// vi) Analysis
+local empirical_facts                   = 0 // create empirical-facts figures and tables
 
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
@@ -169,8 +176,29 @@ if `parquet_dta' == 1 {
             --output "`data'/build/nfip_attom_property/`st'_nfip_attom_property.dta"
     }
 }
+if `attom_value_wide' == 1 {
+    shell `python' "`code'/build/attom_value_wide.py" --data "`data'" --states "`states'"
+}
+if `attom_value_dta' == 1 {
+    // 09-07: run after parquet_dta. Keeps only ATTOM IDs that the matcher assigned to an NFIP property, so the .dta is ~sig smaller than state-wide parquet file
+    foreach state of local states {
+        local st = lower("`state'")
+        shell `python' "`code'/build/parquet_dta.py" ///
+            --input "`data'/build/attom_value_wide/`st'_attom_value_wide.parquet" ///
+            --output "`data'/build/attom_value_wide/`st'_attom_value_wide.dta" ///
+            --where "attomid IN (SELECT assigned_attomid FROM read_parquet('`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet') WHERE assigned_attomid IS NOT NULL)"
+    }
+}
 
 // v) Descriptives
 if `summary_stats' == 1 {
     do "`code'/descriptives/summary_table.do" "`data'" "`output'"
+}
+if `elevations_by_state' == 1 {
+    do "`code'/descriptives/elevations_by_state.do" "`data'" "`output'"
+}
+
+// vi) Analysis
+if `empirical_facts' == 1 {
+    do "`code'/analysis/empirical_facts_figures.do" "`data'" "`output'"
 }

@@ -1,7 +1,7 @@
 """
 Authors: Anna Li
 Original Date: 2026-08-14
-Revised Date: 2026-08-16
+Revised Date: 2026-09-06
 
 Pairs each NFIP-insured property with one ATTOM property, so the insurance
 records pick up a property value and a Builty elevation flag.
@@ -17,6 +17,8 @@ crosswalk that comes out has no time dimension, so a property-year panel gets
 rebuilt afterwards by joining ATTOM values on (attomid, year).
 
 Note: this is not cumulative. Cumulative was done only for diagnostics. 
+09-06: ATTOM block-group falls back to Builty info when ATTOM's own geocoding info fails
+09-06: add in also the new-construction/back-fill retrofit flags of builty
 """
 
 from __future__ import annotations
@@ -75,6 +77,9 @@ ASSIGNMENT_COLUMNS = {
     "attom_nfhl_community_matched": "boolean", "builty_elevated": "integer",
     "builty_elevation_year": "integer", "builty_n_properties": "integer",
     "builty_merge_status": "integer", "builty_attom_match_tier": "varchar",
+    # 09-06: retrofit / new-construction flags and the geocode-backfill flag from attom_builty.py
+    "builty_retrofit": "integer", "builty_new_construction": "integer",
+    "builty_geo_backfilled": "integer",
     "attom_value_year": "integer", "attom_value_lag": "integer",
     **{f"attom_{c}": "double" for c in VALUE_COLUMNS},
 }
@@ -203,6 +208,7 @@ def use_code_filter(use_codes: str) -> str:
 def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
                 use_codes: str, allow_missing_construction: bool) -> None:
     # eligible ATTOM pool: one row each, with NFHL flood zone + elevation flag
+    #09-06add in flags carried from attom_builty.py, and fall back to Builty block group when ATTOM's own geocode fails
     year_filter = "TRUE" if allow_missing_construction else "p.construction_year BETWEEN 1700 AND 2027"
     con.execute(f"""
         CREATE TABLE attom AS
@@ -218,7 +224,11 @@ def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
           WHERE {use_code_filter(use_codes)}
           GROUP BY 1
         ), e AS (SELECT * FROM read_parquet({q(enriched)}))
-        SELECT p.*,
+        SELECT p.* EXCLUDE(blockgroup_key),
+          coalesce(p.blockgroup_key, nullif(trim(cast(e.builty_blockgroup AS varchar)),'')) blockgroup_key,
+          cast(e.builty_retrofit AS integer) builty_retrofit,
+          cast(e.builty_new_construction AS integer) builty_new_construction,
+          coalesce(cast(e.coords_backfilled_builty AS integer),0) builty_geo_backfilled,
           -- pad community number to 6 digits to match NFIP
           CASE WHEN regexp_matches(trim(cast(e.nfip_community_id AS varchar)), '^[0-9]+(\\.0)?$')
                  THEN lpad(regexp_extract(trim(cast(e.nfip_community_id AS varchar)), '^(\\d+)', 1), 6, '0')
@@ -317,6 +327,9 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
         "builty_elevated=h.builty_elevated", "builty_elevation_year=h.builty_elevation_year",
         "builty_n_properties=h.builty_n_properties", "builty_merge_status=h.builty_merge_status",
         "builty_attom_match_tier=h.builty_attom_match_tier",
+        # 09-06: the three new flags ride onto the NFIP property with the rest
+        "builty_retrofit=h.builty_retrofit", "builty_new_construction=h.builty_new_construction",
+        "builty_geo_backfilled=h.builty_geo_backfilled",
     ]
     con.execute(f"UPDATE nfip n SET {','.join(assignments)} FROM tier_hits h WHERE n.property_id=h.property_id")
 

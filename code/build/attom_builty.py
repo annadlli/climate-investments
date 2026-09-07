@@ -14,6 +14,10 @@ preferring one from before the elevation happened (saved permit-level to
 --permits-out). The matched permits are then collapsed to one row per ATTOMID
 and left-joined onto the ATTOM--NFHL property file, so every property survives
 and carries builty_elevated / builty_elevation_year (saved to --out).
+
+Revised 2026-09-06: Builty is also geocoded to get zip code, so they can also enter the ATTOM-NFHL group tiers
+ The retrofit / new-construction flags from
+clean_builty.do are carried through as builty_retrofit / builty_new_construction.
 """
 
 from __future__ import annotations
@@ -84,6 +88,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--permits", default=None)
     parser.add_argument("--attom", default=None)
     parser.add_argument("--attom-nfhl", required=True, help="{state}_attom_nfhl.parquet, the property master")
+    parser.add_argument("--nfhl", default=None,
+                        help="NFHL .gdb or folder of state-FIPS subfolders; when given, backfilled "
+                             "points get a flood zone and community the same way attom_nfhl.py does")
     parser.add_argument("--out", default=None)
     parser.add_argument("--permits-out", default=None)
     parser.add_argument("--tmp", default="/tmp")
@@ -374,18 +381,117 @@ def clean_id(series: pd.Series) -> pd.Series:
     return series.astype("string").str.strip().str.replace(r"\.0$", "", regex=True)
 
 
+def first_nonblank(series: pd.Series) -> object:
+    # first value that is neither null nor an empty string, else None
+    values = series.dropna()
+    values = values[values.astype(str).str.strip().ne("")]
+    return values.iloc[0] if len(values) else None
+
+
 def collapse_to_properties(permits: pd.DataFrame) -> pd.DataFrame:
     # a property can carry several permits, so squash them down to one row per ATTOMID
     permits = permits.assign(attomid=clean_id(permits["ATTOMID"]))
-    permits = permits.loc[permits["attomid"].notna()]
+    permits = permits.loc[permits["attomid"].notna()].copy()
     permits["elevation_year"] = pd.to_numeric(permits["permit_year"], errors="coerce")
+
+    # optional columns from the 2026-09-06 cleaner and geocoder revisions; older
+    # permit files simply lack them and the output carries nulls
+    for column in ["RETROFIT", "NEW_CONSTRUCTION"]:
+        permits[column] = pd.to_numeric(permits.get(column), errors="coerce")
+    for column in ["LONGITUDE_BUILTY", "LATITUDE_BUILTY"]:
+        permits[column] = pd.to_numeric(permits.get(column), errors="coerce")
+    permits["CENSUSBLOCKGROUPFIPS_BUILTY"] = permits.get(
+        "CENSUSBLOCKGROUPFIPS_BUILTY", pd.Series("", index=permits.index)).fillna("").astype(str)
+    # coordinates only count when the Builty geocode was a match
+    geo_ok = permits.get("GEOCODE_MATCH_BUILTY", pd.Series("", index=permits.index)).fillna("").astype(str).str.strip().eq("Match")
+    permits.loc[~geo_ok, ["LONGITUDE_BUILTY", "LATITUDE_BUILTY"]] = np.nan
+    permits.loc[~geo_ok, "CENSUSBLOCKGROUPFIPS_BUILTY"] = ""
+
     builty = permits.groupby("attomid", as_index=False).agg(
         builty_elevation_year=("elevation_year", "min"),
         builty_n_properties=("BUILTY_ID", "nunique"),
         builty_attom_match_tier=("attom_match_tier", "first"),
+        builty_retrofit=("RETROFIT", "max"),
+        builty_new_construction=("NEW_CONSTRUCTION", "max"),
+        builty_blockgroup=("CENSUSBLOCKGROUPFIPS_BUILTY", first_nonblank),
+        builty_longitude=("LONGITUDE_BUILTY", "first"),
+        builty_latitude=("LATITUDE_BUILTY", "first"),
     )
+    builty["builty_blockgroup"] = builty["builty_blockgroup"].fillna("").astype(str)
     builty["builty_elevated"] = 1
     return builty
+
+
+def backfill_geography(result: pd.DataFrame, nfhl: str | None, state: str) -> pd.DataFrame:
+    # ATTOM properties whose own geocode failed have no coordinates, hence no
+    # block group and no NFHL zone. Where Builty geocoded the same address, use
+    # its coordinates and, with --nfhl, rerun the flood-zone / community join
+    # for just those points so they can reach the block-group tiers downstream.
+    result["coords_backfilled_builty"] = 0
+    lon = pd.to_numeric(result["longitude"], errors="coerce")
+    lat = pd.to_numeric(result["latitude"], errors="coerce")
+    match_col = "geocode_match" if "geocode_match" in result else ("match" if "match" in result else None)
+    attom_ok = lon.notna() & lat.notna()
+    if match_col:
+        attom_ok &= result[match_col].fillna("").astype(str).str.strip().eq("Match")
+    need = (result["builty_elevated"].eq(1) & ~attom_ok
+            & result["builty_longitude"].notna() & result["builty_latitude"].notna())
+    n_elev = int(result["builty_elevated"].eq(1).sum())
+    n_nocoord = int((result["builty_elevated"].eq(1) & ~attom_ok).sum())
+    print(f"{state}: {n_elev:,} Builty-elevated properties; {n_nocoord:,} without ATTOM "
+          f"coordinates; {int(need.sum()):,} backfilled from the Builty geocode")
+    if not need.any():
+        return result
+
+    result.loc[need, "longitude"] = result.loc[need, "builty_longitude"].astype(float)
+    result.loc[need, "latitude"] = result.loc[need, "builty_latitude"].astype(float)
+    if match_col:
+        result.loc[need, match_col] = "Match"
+    result.loc[need, "coords_backfilled_builty"] = 1
+    if not nfhl:
+        print(f"{state}: --nfhl not given, backfilled points keep no flood zone")
+        return result
+
+    import geopandas as gpd
+    from attom_nfhl import (COMMUNITY_FIELDS, FLOOD_FIELDS, attach_firm_dates, find_layer,
+                            normalize_community_id, resolve_nfhl, spatial_attributes)
+    dataset = resolve_nfhl(Path(nfhl), state.lower())
+    points = gpd.GeoDataFrame(
+        result.loc[need, ["attomid"]].copy(),
+        geometry=gpd.points_from_xy(result.loc[need, "longitude"], result.loc[need, "latitude"]),
+        crs="EPSG:4326")
+    # read only the map tiles around the points; the full state layer is huge
+    minx, miny, maxx, maxy = points.total_bounds
+    bbox = (minx - 0.05, miny - 0.05, maxx + 0.05, maxy + 0.05)
+    flood_layer, community_layer = find_layer(dataset, "S_FLD_HAZ_AR"), find_layer(dataset, "S_POL_AR")
+    flood_polygons = gpd.read_file(dataset, layer=flood_layer, engine="pyogrio", bbox=bbox)
+    community_polygons = gpd.read_file(dataset, layer=community_layer, engine="pyogrio", bbox=bbox)
+
+    flood = spatial_attributes(points, flood_polygons, FLOOD_FIELDS, "flood")
+    flood = flood.rename(columns={"dfirm_id": "flood_dfirm_id"})
+    community = spatial_attributes(points, community_polygons, COMMUNITY_FIELDS, "community")
+    community = community.rename(columns={"dfirm_id": "community_dfirm_id"})
+    community = attach_firm_dates(community, dataset)
+    fill = flood.merge(community, on="attomid", how="outer").set_index("attomid")
+    for column in ("static_bfe", "depth"):
+        if column in fill:
+            fill.loc[pd.to_numeric(fill[column], errors="coerce") <= -9990, column] = pd.NA
+    fill["nfhl_flood_matched"] = fill["flood_candidate_count"].fillna(0).gt(0)
+    fill["nfhl_community_matched"] = fill["community_candidate_count"].fillna(0).gt(0)
+    community_id = "cid" if "cid" in fill else "comm_no"
+    fill["nfip_community_id"] = normalize_community_id(fill[community_id].fillna("").astype(str))
+
+    # write the joined fields back onto the backfilled rows only
+    idx = result.index[need]
+    keyed = result.loc[idx, "attomid"].astype(str)
+    for column in fill.columns:
+        if column not in result.columns:
+            result[column] = pd.NA
+        result.loc[idx, column] = keyed.map(fill[column]).values
+    print(f"{state}: NFHL join on backfilled points -> "
+          f"{int(fill['nfhl_flood_matched'].sum()):,} with a flood zone, "
+          f"{int(fill['nfhl_community_matched'].sum()):,} with a community")
+    return result
 
 
 def main() -> None:
@@ -487,6 +593,10 @@ def main() -> None:
     result["builty_elevated"] = result["builty_elevated"].fillna(0).astype("int8")
     result["builty_n_properties"] = result["builty_n_properties"].fillna(0).astype("int16")
     result["builty_merge_status"] = result["builty_elevated"].map({0: 1, 1: 3}).astype("int8")
+    result["builty_blockgroup"] = result["builty_blockgroup"].fillna("").astype(str)
+
+    # 2026-09-06 additions: coordinates, block group and flood zone for Builty-elevated houses that ATTOM could not geocode
+    result = backfill_geography(result, args.nfhl, state)
 
     result.to_parquet(out_path, index=False)
     print(f"{state}: {len(result):,} ATTOM properties, "

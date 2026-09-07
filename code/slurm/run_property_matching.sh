@@ -16,7 +16,9 @@ OUT_ROOT=""
 MEMORY="24GB"
 THREADS="4"
 TMP=""
+NFHL_ROOT=""
 FORCE=0
+FROM=""   # empty = never force; --from N reruns steps N.. even where outputs exist
 
 usage() {
     cat >&2 <<'USAGE'
@@ -29,7 +31,12 @@ Usage: run_property_matching.sh --state ST [options]
   --memory SIZE     DuckDB memory cap, e.g. 80GB (default: 24GB)
   --threads N       DuckDB threads (default: 4)
   --tmp DIR         Spill directory (default: {out-root}/tmp/{st})
+  --nfhl-root DIR   Folder holding the state-FIPS NFHL subfolders (12/, 22/, ...);
+                    default: first of {data}/raw/nfhl/nfhl, {data}/nfhl/nfhl, {data}/nfhl that exists
   --force           Rerun every step even where the output already exists
+  --from N          Rerun from step N onward even where outputs exist (1-4);
+                    e.g. --from 3 redoes the Builty match and NFIP assignment
+                    but keeps the cached geocode and NFHL join
 USAGE
     exit 2
 }
@@ -43,7 +50,9 @@ while [[ $# -gt 0 ]]; do
         --memory)   MEMORY="$2";   shift 2 ;;
         --threads)  THREADS="$2";  shift 2 ;;
         --tmp)      TMP="$2";      shift 2 ;;
+        --nfhl-root) NFHL_ROOT="$2"; shift 2 ;;
         --force)    FORCE=1;       shift 1 ;;
+        --from)     FROM="$2";     shift 2 ;;
         -h|--help)  usage ;;
         *) echo "run_property_matching: unknown argument '$1'" >&2; usage ;;
     esac
@@ -51,20 +60,38 @@ done
 
 [[ -n "${STATE}" ]] || { echo "run_property_matching: --state is required" >&2; usage; }
 
-# Lower-case for file names, upper-case for the arguments the Python scripts
-# expect. Doing it here means the caller can pass either.
+# Lower-case for file names, upper-case for the arguments the Python scripts expect
 ST="$(echo "${STATE}" | tr '[:upper:]' '[:lower:]')"
 STU="$(echo "${STATE}" | tr '[:lower:]' '[:upper:]')"
 
-CODE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../build" && pwd)"
+# Python scripts live in ../build in the repo; on the cluster everything may sit
+# flat in one folder, so fall back to this script's own directory (09-07)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -d "${SCRIPT_DIR}/../build" ]]; then
+    CODE="$(cd "${SCRIPT_DIR}/../build" && pwd)"
+else
+    CODE="${SCRIPT_DIR}"
+fi
 OUT_ROOT="${OUT_ROOT:-${DATA}/build/nfip_attom_pipeline_v2}"
 TMP="${TMP:-${OUT_ROOT}/tmp/${ST}}"
 
 # Paths. Inputs first, then the output of each step, so the dependency chain below reads in the same order it runs.
+# raw ATTOM: Dropbox keeps it under raw/attom/, the cluster extract writes it to
+# {st}/ (prepare/extract_attom.py); take whichever exists (09-07)
 RAW_ATTOM="${DATA}/raw/attom/attom_${ST}.parquet"
+for candidate in "${DATA}/${ST}/attom_${ST}.parquet" "${DATA}/attom_${ST}.parquet" \
+                 "${DATA}/../${ST}/attom_${ST}.parquet"; do
+    [[ -s "${RAW_ATTOM}" ]] || { [[ -s "${candidate}" ]] && RAW_ATTOM="${candidate}"; }
+done
 # attom_nfhl.py globs <root>/<state-fips>/*.gdb, so the root is the folder
-# holding the numbered state directories -- one level below raw/nfhl.
-NFHL_ROOT="${DATA}/raw/nfhl/nfhl"
+# holding the numbered state directories -- one level below raw/nfhl on Dropbox;
+# the cluster copy may sit elsewhere, so try the usual spots or take --nfhl-root (09-07)
+if [[ -z "${NFHL_ROOT}" ]]; then
+    for candidate in "${DATA}/raw/nfhl/nfhl" "${DATA}/nfhl/nfhl" "${DATA}/nfhl" "${DATA}/raw/nfhl"; do
+        [[ -d "${candidate}" ]] && { NFHL_ROOT="${candidate}"; break; }
+    done
+    NFHL_ROOT="${NFHL_ROOT:-${DATA}/raw/nfhl/nfhl}"
+fi
 GEOCODE_WORK="${DATA}/build/attom_geocode/${ST}_addr"
 PERMITS="${DATA}/clean/builty_elevations_zipfilled.dta"
 PROPERTIES="${DATA}/clean/nfip_policies_property.dta"
@@ -81,7 +108,8 @@ FINAL="${OUT_ROOT}/nfip_attom_property/${ST}_nfip_attom_property.parquet"
 
 step_needed() {
     local label="$1" target="$2"
-    if [[ "${FORCE}" -eq 0 && -s "${target}" ]]; then
+    local number="${label%%/*}"
+    if [[ "${FORCE}" -eq 0 && -s "${target}" && ( -z "${FROM}" || "${number}" -lt "${FROM}" ) ]]; then
         echo "[${label}] skip -- output exists: ${target}"
         return 1
     fi
@@ -98,9 +126,15 @@ require() {
     [[ "${missing}" -eq 0 ]] || exit 2
 }
 
+# output folders; the Python scripts do not create them (09-07)
+mkdir -p "${OUT_ROOT}/geocoded" "${OUT_ROOT}/nfhl_matches" "${OUT_ROOT}/attom_builty" \
+         "${OUT_ROOT}/nfip_attom_property" "${TMP}"
+
 echo "=== ${STU}: matching pipeline ==="
 echo "    data     ${DATA}"
 echo "    output   ${OUT_ROOT}"
+echo "    attom    ${RAW_ATTOM}"
+echo "    nfhl     ${NFHL_ROOT}"
 
 # -----------------------------------------------------------------------------
 # 1. ATTOM geocoded panel.
@@ -142,11 +176,12 @@ fi
 # ATTOM--NFHL master, so every property survives.
 # -----------------------------------------------------------------------------
 if step_needed "3/4" "${BUILTY}"; then
-    require "${RAW_ATTOM}" "${PERMITS}" "${NFHL}"
+    require "${RAW_ATTOM}" "${PERMITS}" "${NFHL}" "${NFHL_ROOT}"
     echo "[3/4] Builty--ATTOM address match, joined onto the ATTOM--NFHL universe"
+    # Builty geocode backfill added (09-05 change)
     "${PYTHON}" "${CODE}/attom_builty.py" \
         --state "${STU}" --data "${DATA}" --permits "${PERMITS}" \
-        --attom "${RAW_ATTOM}" --attom-nfhl "${NFHL}" \
+        --attom "${RAW_ATTOM}" --attom-nfhl "${NFHL}" --nfhl "${NFHL_ROOT}" \
         --out "${BUILTY}" --permits-out "${PERMITS_OUT}" \
         --tmp "${TMP}/builty" --memory "${MEMORY}" --threads "${THREADS}"
 fi

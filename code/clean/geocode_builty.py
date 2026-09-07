@@ -1,8 +1,12 @@
 """Authors: Anna Li
 Date: 2026-08-06
+Revised: 2026-09-06 
 
 Fill missing Builty ZIP codes using the existing ZIP, address text, same-address
 matches, and the Census batch geocoder when needed.
+
+Revision: every permit with a street address is now sent to the Census endpoint, to come back with more than just zipcode
+attom_builty.py uses those to backfill ATTOM properties whose own geocode failed
 """
 
 from __future__ import annotations
@@ -20,10 +24,13 @@ import pandas as pd
 import requests
 
 
-BATCH_URL = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
+# geographies endpoint: same as locations, plus state/county/tract/block columns
+BATCH_URL = "https://geocoding.geo.census.gov/geocoder/geographies/addressbatch"
+BENCHMARK = "Public_AR_Current"
+VINTAGE = "Current_Current"
 RESULT_COLS = [
     "address_id", "input_address", "match", "match_type", "matched_address",
-    "coordinates", "tigerline_id", "side",
+    "coordinates", "tigerline_id", "side", "statefp", "countyfp", "tract", "block",
 ]
 
 
@@ -127,7 +134,7 @@ def geocode_chunk(chunk: Path, output: Path, timeout: int) -> str:
                 response = requests.post(
                     BATCH_URL,
                     files={"addressFile": (chunk.name, handle, "text/csv")},
-                    data={"benchmark": "Public_AR_Current"},
+                    data={"benchmark": BENCHMARK, "vintage": VINTAGE},
                     timeout=timeout,
                 )
             response.raise_for_status()
@@ -144,9 +151,10 @@ def geocode_chunk(chunk: Path, output: Path, timeout: int) -> str:
     return "failed"
 
 
-def census_zipcodes(addresses: pd.DataFrame, work: Path, workers: int,
-                    chunk_size: int, timeout: int) -> pd.DataFrame:
-    # Run the Census batch lookup and pull the ZIP from the matched address string.
+def census_geocode(addresses: pd.DataFrame, work: Path, workers: int,
+                   chunk_size: int, timeout: int) -> pd.DataFrame:
+    # Run the Census batch lookup; pull the ZIP from the matched address string and
+    # the block group + coordinates from the geography columns.
     result_dir = work / "results"
     result_dir.mkdir(parents=True, exist_ok=True)
     chunks = write_chunks(addresses, work / "chunks", result_dir, chunk_size)
@@ -185,7 +193,21 @@ def census_zipcodes(addresses: pd.DataFrame, work: Path, workers: int,
         results.loc[matched, "matched_address"]
         .str.extract(r"\b(\d{5})(?:-\d{4})?\s*$", expand=False).fillna("")
     )
-    return results[["address_id", "zipcode_census", "match", "match_type"]].drop_duplicates("address_id")
+    # block group = state(2) + county(3) + tract(6) + first digit of block, as in
+    # prepare/geocode_attom.py, so the two sides carry the same 12-digit key
+    results["blockgroup_census"] = ""
+    results.loc[matched, "blockgroup_census"] = (
+        results.loc[matched, "statefp"].str.strip().str.zfill(2)
+        + results.loc[matched, "countyfp"].str.strip().str.zfill(3)
+        + results.loc[matched, "tract"].str.strip().str.zfill(6)
+        + results.loc[matched, "block"].str.strip().str.zfill(4).str[0]
+    )
+    results.loc[results["blockgroup_census"].str.len().ne(12), "blockgroup_census"] = ""
+    lonlat = results["coordinates"].fillna("").str.split(",", expand=True)
+    results["longitude_census"] = pd.to_numeric(lonlat[0], errors="coerce")
+    results["latitude_census"] = pd.to_numeric(lonlat[1] if 1 in lonlat else pd.NA, errors="coerce")
+    return results[["address_id", "zipcode_census", "blockgroup_census", "longitude_census",
+                    "latitude_census", "match", "match_type"]].drop_duplicates("address_id")
 
 
 def main() -> None:
@@ -241,9 +263,10 @@ def main() -> None:
     frame.loc[fill, "zipcode"] = same_address[fill]
     frame.loc[fill, "zipcode_source"] = "same_address"
 
-    # Third pass: prepare the unresolved rows for Census batch geocoding.
-    unresolved = frame["zipcode"].eq("") & clean_text(frame["street_address"]).ne("")
-    addresses = (frame.loc[unresolved, ["address_id", "street_address", "locality", "state"]]
+    # Third pass: Census batch geocoding. Every permit with a street address goes,
+    # so all of them get a block group and coordinates. Added as revision 09-05
+    has_street = clean_text(frame["street_address"]).ne("")
+    addresses = (frame.loc[has_street, ["address_id", "street_address", "locality", "state"]]
                  .drop_duplicates("address_id").sort_values("address_id"))
     addresses.columns = ["address_id", "street", "city", "state"]
     prepared = [
@@ -256,9 +279,13 @@ def main() -> None:
 
     frame["zipcode_census_match"] = ""
     frame["zipcode_census_match_type"] = ""
+    frame["censusblockgroupfips_builty"] = ""
+    frame["longitude_builty"] = float("nan")
+    frame["latitude_builty"] = float("nan")
+    frame["geocode_match_builty"] = ""
     if not args.local_only and len(addresses):
-        # Census is the main external backstop: batch geocode unresolved addresses 
-        results = census_zipcodes(
+        # Census is the main external backstop: batch geocode the addresses
+        results = census_geocode(
             addresses, work, args.workers, args.chunk_size, args.timeout
         ).rename(columns={"match": "zipcode_census_match",
                           "match_type": "zipcode_census_match_type"})
@@ -270,6 +297,11 @@ def main() -> None:
         frame.loc[fill, "zipcode"] = frame.loc[fill, "zipcode_census"]
         frame.loc[fill, "zipcode_source"] = "census"
         frame.drop(columns="zipcode_census", inplace=True)
+        # block group and coordinates for every geocoded permit
+        frame["censusblockgroupfips_builty"] = frame.pop("blockgroup_census").fillna("")
+        frame["longitude_builty"] = frame.pop("longitude_census")
+        frame["latitude_builty"] = frame.pop("latitude_census")
+        frame["geocode_match_builty"] = frame["zipcode_census_match"].fillna("")
 
     # A few states use leading-zero ZIPs. If the state name is embedded with a 4-digit
     # suffix, we pad it back to a 5-digit ZIP.
@@ -303,14 +335,17 @@ def main() -> None:
         frame.loc[fill, "zipcode_manual_source_url"] = frame.loc[fill, "source_url"]
         frame.drop(columns=["zipcode_manual", "review_note", "source_url"], inplace=True)
 
-    # The basic integrity checks are relaxed here so the script stays useful in messy
-    # real-world runs instead of dying on edge cases.
+    # The basic integrity checks are relaxed here so the script is not stuck on edge case scenarios
     frame.drop(columns="address_id", inplace=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_stata(output_path, write_index=False, version=118)
     diagnostics = (frame.groupby(["state", "zipcode_source"], dropna=False).size()
                    .rename("n").reset_index())
     diagnostics.to_csv(work / "zipcode_fill_diagnostics.csv", index=False)
+    geocoded = frame.groupby("state")["censusblockgroupfips_builty"].agg(
+        permits="size", with_blockgroup=lambda s: s.ne("").sum()).reset_index()
+    geocoded.to_csv(work / "blockgroup_geocode_diagnostics.csv", index=False)
+    print(geocoded.to_string(index=False))
 
     review_columns = [
         "builty_id", "state", "county", "fips_county", "locality",
