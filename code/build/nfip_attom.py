@@ -80,6 +80,7 @@ ASSIGNMENT_COLUMNS = {
     # 09-06: retrofit / new-construction flags and the geocode-backfill flag from attom_builty.py
     "builty_retrofit": "integer", "builty_new_construction": "integer",
     "builty_geo_backfilled": "integer",
+    "builty_built_at_permit": "integer",   # 09-07: permit year within a year of ATTOM year built
     "attom_value_year": "integer", "attom_value_lag": "integer",
     **{f"attom_{c}": "double" for c in VALUE_COLUMNS},
 }
@@ -228,6 +229,7 @@ def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
           coalesce(p.blockgroup_key, nullif(trim(cast(e.builty_blockgroup AS varchar)),'')) blockgroup_key,
           cast(e.builty_retrofit AS integer) builty_retrofit,
           cast(e.builty_new_construction AS integer) builty_new_construction,
+          cast(e.builty_built_at_permit AS integer) builty_built_at_permit,
           coalesce(cast(e.coords_backfilled_builty AS integer),0) builty_geo_backfilled,
           -- pad community number to 6 digits to match NFIP
           CASE WHEN regexp_matches(trim(cast(e.nfip_community_id AS varchar)), '^[0-9]+(\\.0)?$')
@@ -330,6 +332,7 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
         # 09-06: the three new flags ride onto the NFIP property with the rest
         "builty_retrofit=h.builty_retrofit", "builty_new_construction=h.builty_new_construction",
         "builty_geo_backfilled=h.builty_geo_backfilled",
+        "builty_built_at_permit=h.builty_built_at_permit",
     ]
     con.execute(f"UPDATE nfip n SET {','.join(assignments)} FROM tier_hits h WHERE n.property_id=h.property_id")
 

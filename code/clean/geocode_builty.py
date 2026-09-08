@@ -212,7 +212,7 @@ def census_geocode(addresses: pd.DataFrame, work: Path, workers: int,
 
 def main() -> None:
     # Main pipeline: load the Builty file, fill the missing ZIPs in stages, then
-    # save the cleaned output and a small review file.
+    # save the cleaned output.
     args = parse_args()
     data = Path(args.data)
     input_path = Path(args.input) if args.input else data / "clean" / "builty_elevations.dta"
@@ -339,34 +339,11 @@ def main() -> None:
     frame.drop(columns="address_id", inplace=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_stata(output_path, write_index=False, version=118)
-    diagnostics = (frame.groupby(["state", "zipcode_source"], dropna=False).size()
-                   .rename("n").reset_index())
-    diagnostics.to_csv(work / "zipcode_fill_diagnostics.csv", index=False)
-    geocoded = frame.groupby("state")["censusblockgroupfips_builty"].agg(
-        permits="size", with_blockgroup=lambda s: s.ne("").sum()).reset_index()
-    geocoded.to_csv(work / "blockgroup_geocode_diagnostics.csv", index=False)
-    print(geocoded.to_string(index=False))
-
-    review_columns = [
-        "builty_id", "state", "county", "fips_county", "locality",
-        "street_address", "street_address_original", "zipcode_original", "zipcode", "zipcode_source",
-        "zipcode_census_match", "zipcode_census_match_type", "permit_date",
-        "zipcode_manual_review_note",
-        "zipcode_manual_source_url",
-        "permit_year", "description", "record_type", "property_type", "status",
-    ]
-    unresolved = frame.loc[
-        frame["zipcode_source"].eq("unresolved"),
-        [column for column in review_columns if column in frame.columns],
-    ].sort_values(["state", "locality", "street_address"])
-    unresolved.to_stata(work / "builty_zip_unresolved_review.dta", write_index=False, version=118)
-    unresolved.to_csv(work / "builty_zip_unresolved_review.csv", index=False)
-
+    # 09-07: fill counts to the log only; no diagnostic or review files from the pipeline
     print(frame["zipcode_source"].value_counts(dropna=False).to_string())
+    print(frame.groupby("state")["censusblockgroupfips_builty"]
+          .agg(permits="size", with_blockgroup=lambda s: s.ne("").sum()).to_string())
     print(f"Saved: {output_path}")
-    print(f"Saved: {work / 'zipcode_fill_diagnostics.csv'}")
-    print(f"Saved: {work / 'builty_zip_unresolved_review.dta'}")
-    print(f"Saved: {work / 'builty_zip_unresolved_review.csv'}")
 
 
 if __name__ == "__main__":

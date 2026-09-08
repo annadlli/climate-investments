@@ -407,12 +407,19 @@ def collapse_to_properties(permits: pd.DataFrame) -> pd.DataFrame:
     permits.loc[~geo_ok, ["LONGITUDE_BUILTY", "LATITUDE_BUILTY"]] = np.nan
     permits.loc[~geo_ok, "CENSUSBLOCKGROUPFIPS_BUILTY"] = ""
 
+    #2026-09-07: a second new-construction signal, based on attom year record vs builty permit year record -> compare to see accuracy of new construction signal
+    yearbuilt = pd.to_numeric(permits.get("YEARBUILT"), errors="coerce")
+    permits["BUILT_AT_PERMIT"] = ((permits["elevation_year"] <= yearbuilt + 1)
+                                  & (yearbuilt > 1700)).astype(float)
+    permits.loc[permits["elevation_year"].isna() | yearbuilt.isna(), "BUILT_AT_PERMIT"] = np.nan
+
     builty = permits.groupby("attomid", as_index=False).agg(
         builty_elevation_year=("elevation_year", "min"),
         builty_n_properties=("BUILTY_ID", "nunique"),
         builty_attom_match_tier=("attom_match_tier", "first"),
         builty_retrofit=("RETROFIT", "max"),
         builty_new_construction=("NEW_CONSTRUCTION", "max"),
+        builty_built_at_permit=("BUILT_AT_PERMIT", "max"),
         builty_blockgroup=("CENSUSBLOCKGROUPFIPS_BUILTY", first_nonblank),
         builty_longitude=("LONGITUDE_BUILTY", "first"),
         builty_latitude=("LATITUDE_BUILTY", "first"),

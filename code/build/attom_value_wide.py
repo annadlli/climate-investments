@@ -14,6 +14,7 @@ Cleaning: values <= 0 are missing (ATTOM logs 0 where it holds no value)
 from __future__ import annotations
 
 import argparse
+import tempfile
 from pathlib import Path
 
 import duckdb
@@ -102,16 +103,14 @@ def build_state(con: duckdb.DuckDBPyConnection, state: str, source: Path, out_di
                {value_cols}
         FROM long GROUP BY attomid
     """)
-    # Write the wide panel and diagnostic tables.
+    # Write the wide panel; the checks above go to the log only
     out_dir.mkdir(parents=True, exist_ok=True)
     parquet_out = out_dir / f"{state.lower()}_attom_value_wide.parquet"
     con.execute(f"COPY (SELECT * FROM wide ORDER BY attomid) TO {q(parquet_out)} (FORMAT PARQUET, COMPRESSION ZSTD)")
     n = con.execute("SELECT count(*), sum((n_value_years > 0)::int) FROM wide").fetchone()
     print(f"{state}: {n[0]:,} properties, {n[1]:,} with at least one value; saved {parquet_out.name}")
     print(diag.to_string(index=False))
-    diag.insert(0, "state", state)
-    diag.to_csv(out_dir / f"{state.lower()}_attom_value_wide_diagnostics.csv", index=False)
-    by_year.to_csv(out_dir / f"{state.lower()}_attom_value_wide_by_year.csv", index=False)
+    print(by_year.to_string(index=False))
 
 
 def main() -> None:
@@ -128,7 +127,7 @@ def main() -> None:
     con = duckdb.connect()
     con.execute(f"SET memory_limit={q(args.memory)}")
     con.execute(f"SET threads={args.threads}")
-    con.execute(f"SET temp_directory={q(out_dir / 'duckdb_tmp')}")
+    con.execute(f"SET temp_directory={q(Path(tempfile.gettempdir()) / 'attom_value_wide')}")
     con.execute("SET preserve_insertion_order=false")
 
     # Register the CPI series used to convert nominal values to 2023 dollars.

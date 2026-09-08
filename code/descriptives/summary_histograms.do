@@ -37,7 +37,7 @@ histogram ln_claim, `opts' ///
     xlabel(`dollars') ///
     xline(`=ln(`med')', lcolor(cranberry) lpattern(dash))
 graph save  "`output'/figures/claims_histogram.gph", replace
-graph export "`output'/figures/claims_histogram.pdf", replace
+graph export "`output'/figures/claims_histogram.png", width(2000) replace
 
 * Elevation project cost, among properties reporting one
 // Note: project_value is unreported rather than zero where Builty has no cost
@@ -52,4 +52,4 @@ histogram ln_cost, `opts' ///
     xlabel(`dollars') ///
     xline(`=ln(`med')', lcolor(cranberry) lpattern(dash))
 graph save  "`output'/figures/elevation_cost_histogram.gph", replace
-graph export "`output'/figures/elevation_cost_histogram.pdf", replace
+graph export "`output'/figures/elevation_cost_histogram.png", width(2000) replace

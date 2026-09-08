@@ -177,5 +177,4 @@ graph hbar builty hma_hmgp hma_fma, over(order, label(labsize(small))) ///
     subtitle("Builty: screened retrofit permits, unique addresses. HMA: approved projects, properties per record.", ///
         pos(11) size(vsmall) color(gs7))
 graph save   "`output'/figures/elevations_by_state.gph", replace
-graph export "`output'/figures/elevations_by_state.pdf", replace
 graph export "`output'/figures/elevations_by_state.png", width(2400) replace

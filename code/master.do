@@ -60,6 +60,7 @@ local clean_fma                         = 0 // clean FEMA FMA data
 local clean_builty                      = 0 // clean Builty permits data
 local geocode_builty                    = 0 // geocode cleaned Builty data to fill in missing ZIP codes
 local clean_builty_coverage             = 0 // prepare Builty permit coverage flag
+local clean_builty_coverage_rate        = 0 // Builty permits per 100 ATTOM SF properties; strict coverage flag (09-07)
 local clean_nfip_policies               = 0 // clean NFIP policies data
 local clean_nfip_claims                 = 0 // clean NFIP claims data
 local clean_nfip_multiple_loss          = 0 // clean NFIP multiple-loss data
@@ -80,7 +81,9 @@ local complete                          = 0 // compile final analysis dataset
 
 // v) Descriptives
 local summary_stats                     = 0 // create summary statistics table
+local summary_histograms                = 0 // histograms of cumulative claims and elevation project cost
 local elevations_by_state               = 0 // count elevation retrofits by state in Builty and HMA (deck tab)
+local builty_coverage_table             = 0 // Builty permit coverage by state for the deck (Claude change 09-07)
 
 // vi) Analysis
 local empirical_facts                   = 0 // create empirical-facts figures and tables
@@ -133,6 +136,9 @@ if `geocode_builty' == 1 {
 if `clean_builty_coverage' == 1 {
     shell `python' "`code'/clean/clean_builty_coverage.py" --data "`data'" --states "`states'"
 }
+if `clean_builty_coverage_rate' == 1 {
+    shell `python' "`code'/clean/clean_builty_coverage_rate.py" --data "`data'" --states "`states'"
+}
 if `clean_nfip_policies' == 1 {
     do "`code'/clean/clean_nfip_policies.do" "`data'" "`states'"
 }
@@ -180,7 +186,7 @@ if `attom_value_wide' == 1 {
     shell `python' "`code'/build/attom_value_wide.py" --data "`data'" --states "`states'"
 }
 if `attom_value_dta' == 1 {
-    // 09-07: run after parquet_dta. Keeps only ATTOM IDs that the matcher assigned to an NFIP property, so the .dta is ~sig smaller than state-wide parquet file
+    // 09-07: run after parquet_dta. Keeps only ATTOM IDs that the matcher assigned to an NFIP property, so the .dta is sig smaller than state-wide parquet file
     foreach state of local states {
         local st = lower("`state'")
         shell `python' "`code'/build/parquet_dta.py" ///
@@ -194,8 +200,14 @@ if `attom_value_dta' == 1 {
 if `summary_stats' == 1 {
     do "`code'/descriptives/summary_table.do" "`data'" "`output'"
 }
+if `summary_histograms' == 1 {
+    do "`code'/descriptives/summary_histograms.do" "`data'" "`output'"
+}
 if `elevations_by_state' == 1 {
     do "`code'/descriptives/elevations_by_state.do" "`data'" "`output'"
+}
+if `builty_coverage_table' == 1 {
+    do "`code'/descriptives/builty_coverage_table.do" "`data'" "`output'"
 }
 
 // vi) Analysis

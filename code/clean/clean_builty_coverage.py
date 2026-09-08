@@ -9,6 +9,13 @@ Description: Builds a Builty permit-coverage index from the raw permits parquet:
     covered county-years cannot show a Builty elevation, so the flag restricts the
     analysis sample rather than treating them as not elevated.
 
+    Claude change 2026-09-07 (Anna): also writes the crosswalk at the finest unit
+    the raw file has, permit-issuing LOCALITY x year
+    (clean/builty_coverage_locality.dta), with the county each locality sits in
+    and the first/last year it reports. --raw overrides the parquet path for a
+    machine that keeps it elsewhere. The housing-stock columns are added to the
+    county file afterwards by clean_builty_coverage_rate.py.
+
 Notes: County FIPS is near-complete except New York City, whose feed carries no
     county; boroughs are assigned from the ZIP prefix there. The three date fields
     are coalesced (issued, submitted, finaled) because some states populate only one.
@@ -42,7 +49,7 @@ def main():
 
     states = [s.strip().upper() for s in args.states.replace(",", " ").split() if s.strip()]
     data = Path(args.data)
-    src = data / "raw" / "builty_all.parquet"
+    src = Path(args.raw) if args.raw else data / "raw" / "builty_all.parquet"
     inlist = ", ".join(f"'{s}'" for s in states)
 
     con = duckdb.connect()
@@ -83,10 +90,29 @@ def main():
         FROM permits WHERE zipcode IS NOT NULL
         GROUP BY 1, 2, 3 ORDER BY 1, 2, 3
     """).fetchdf()
+    #09-07: too see smallest geographical unit, added locality x year crosswalk; the county is the modal county among the locality's permits, year_first/year_last are the locality's span
+    locality = con.execute("""
+        WITH modal AS (
+            SELECT state, locality, arg_max(countycode, n) AS countycode
+            FROM (SELECT state, nullif(trim(locality), '') AS locality, countycode, count(*) AS n
+                  FROM permits WHERE countycode IS NOT NULL GROUP BY 1, 2, 3)
+            GROUP BY 1, 2
+        ), ly AS (
+            SELECT state, nullif(trim(locality), '') AS locality, year, count(*) AS builty_n_permits
+            FROM permits GROUP BY 1, 2, 3
+        )
+        SELECT ly.state, ly.locality, ly.year, ly.builty_n_permits, modal.countycode,
+               min(ly.year) OVER (PARTITION BY ly.state, ly.locality) AS year_first,
+               max(ly.year) OVER (PARTITION BY ly.state, ly.locality) AS year_last
+        FROM ly LEFT JOIN modal USING (state, locality)
+        WHERE ly.locality IS NOT NULL ORDER BY 1, 2, 3
+    """).fetchdf()
 
-    for frame in (county, zipc):
+    for frame in (county, zipc, locality):   # 09-07: locality added
         frame["year"] = frame["year"].astype("int16")
         frame["builty_n_permits"] = frame["builty_n_permits"].astype("int32")
+    for column in ("year_first", "year_last"):  
+        locality[column] = locality[column].astype("int16")
     county["builty_n_localities"] = county["builty_n_localities"].astype("int16")
     county["builty_covered"] = county["builty_covered"].astype("int8")
 
@@ -96,16 +122,23 @@ def main():
         "builty_n_localities": "Builty localities with permits",
         "builty_covered": f"County-year has a Builty permit feed (>= {MIN_PERMITS} permits)",
         "builty_share_peak": "Permits as a share of the county's peak year",
+        "locality": "Permit-issuing locality (Builty LOCALITY)",
+        "year_first": "First year the locality reports permits",
+        "year_last": "Last year the locality reports permits",
     }
     county.to_stata(data / "clean" / "builty_coverage_county.dta", write_index=False,
                     variable_labels={k: v for k, v in labels.items() if k in county})
     zipc.to_stata(data / "clean" / "builty_coverage_zip.dta", write_index=False,
                   variable_labels={k: v for k, v in labels.items() if k in zipc})
+    #09-07: locality added
+    locality.to_stata(data / "clean" / "builty_coverage_locality.dta", write_index=False, version=118,
+                      variable_labels={k: v for k, v in labels.items() if k in locality})
 
     covered = county[county.builty_covered == 1]
     print(f"county-years: {len(county):,} ({len(covered):,} covered); "
           f"counties covered in any year: {covered.countycode.nunique():,}; "
-          f"zip-years: {len(zipc):,}")
+          f"zip-years: {len(zipc):,}; locality-years: {len(locality):,} "   
+          f"({locality.groupby('state').locality.nunique().sum():,} localities)")
     print(covered.groupby("state").agg(counties=("countycode", "nunique"),
                                        yr_min=("year", "min"), yr_max=("year", "max")).to_string())
 

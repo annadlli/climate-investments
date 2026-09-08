@@ -8,25 +8,40 @@ Description: Summary statistics table for the NFIP property-year analysis set
     at the top to add a row. Dollar variables are in 2023 dollars, deflated
     upstream in the cleaners.
 
+Revisions: change variable list to match the new ones from property x policy-year panel
+- one row per property level collapse
+
 ******************************************************************************/
 
 args data output
 
 * Set table options
-local vars policy_year_init sfha post_firm primary_residence ///
-    premium_init premium_last ///
+local vars policy_year_first policy_years sfha post_firm primary_residence ///
+    premium_first premium_last ///
     any_claim claim_cb claim_cb_claimant claim_to_value claim_over_value ///
-    nfip_rl nfip_srl ///
-    attom_matched attom_value ///
-    builty_elevated builty_elevation_year ///
-    fma_n_grants fma_spend
+    claim_to_value_fl claim_over_value_fl ///
+    rl srl ///
+    attom_matched attom_value attom_value_2023 ///
+    builty_elevated builty_retrofit builty_new_construction builty_elevation_year ///
+    fma_n_properties fma_spend
 local vars_builty builty_project_value
-local stats N mean sd min p50 max
+local stats N mean se
 
 * -----------------------------------------------------------------------------
 
-* Import data
-use "`data'/analysis/analysis.dta", clear
+* Import data and collapse to one row per property
+// 09-07: the panel is property x policy-year; keep each property's last  year (cumulative claims = property total) and carry first/last premium
+use property_id policy_year sfha post_firm primary_residence premium ///
+    cumulative_claims rl srl attom_matched attom_market_value_total attom_value_2023 ///
+    builty_elevated builty_retrofit builty_new_construction builty_elevation_year ///
+    fma_n_properties fma_spend using "`data'/analysis/analysis.dta", clear
+bysort property_id (policy_year): gen policy_year_first = policy_year[1]
+bysort property_id (policy_year): gen premium_first = premium[1]
+bysort property_id (policy_year): gen policy_years = _N
+bysort property_id (policy_year): keep if _n == _N
+rename (cumulative_claims premium) (claim_cb premium_last)
+count
+local properties = r(N)
 
 * Create derived variables
 // Note: ATTOM logs zero where it holds no value, so zeros are treated as missing
@@ -35,6 +50,9 @@ gen claim_cb_claimant = claim_cb if any_claim
 gen attom_value = attom_market_value_total if attom_market_value_total > 0
 gen claim_to_value = claim_cb / attom_value if any_claim
 gen claim_over_value = claim_to_value > 1 if !mi(claim_to_value)
+//2026-09-07: ratio only where the ATTOM value is at least $10,000; a handful of near-zero values otherwise dominate the mean
+gen claim_to_value_fl = claim_cb / attom_value if any_claim & attom_value >= 10000
+gen claim_over_value_fl = claim_to_value_fl > 1 if !mi(claim_to_value_fl)
 
 * Tabulate statistics
 local nvars : word count `vars' `vars_builty'
@@ -45,7 +63,9 @@ foreach var of local vars {
     qui sum `var', detail
     local j = 1
     foreach stat of local stats {
-        mat M[`i', `j'] = r(`stat')
+        // 09-07: summarize has no r(se), so add it by computation
+        if "`stat'" == "se" mat M[`i', `j'] = r(sd) / sqrt(r(N))
+        else mat M[`i', `j'] = r(`stat')
         local j = `j' + 1
     }
     local i = `i' + 1
@@ -59,14 +79,23 @@ foreach var of local vars_builty {
     qui sum `var', detail
     local j = 1
     foreach stat of local stats {
-        mat M[`i', `j'] = r(`stat')
+        if "`stat'" == "se" mat M[`i', `j'] = r(sd) / sqrt(r(N))
+        else mat M[`i', `j'] = r(`stat')
         local j = `j' + 1
     }
     local i = `i' + 1
 }
 
+* Report the sample size once
+// Claude change: rows on the full sample repeat the same N; blank those and put
+// the number in a final row, so what is left is a subsample count
+forvalues r = 1/`nvars' {
+    if M[`r', 1] == `properties' mat M[`r', 1] = .
+}
+mat M = M \ (`properties', J(1, `nstats' - 1, .))
+
 * Output table
-matrix rownames M = `vars' `vars_builty'
+matrix rownames M = `vars' `vars_builty' N_properties
 matrix colnames M = `stats'
 putexcel set "`output'/tables/summary_table.xlsx", replace
 putexcel A1 = matrix(M), names

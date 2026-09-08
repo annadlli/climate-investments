@@ -1,6 +1,6 @@
 # TODO — climate-investments
 
-_Rewritten 2026-09-02, updated 2026-09-03 against the live `master.do`. Pre-September history (torch_work cleanup,
+_Rewritten 2026-09-02, updated 2026-09-03 and 2026-09-07 (Anna) against the live `master.do`. Pre-September history (torch_work cleanup,
 build/ consolidation, NFIP/FMA/CPI build notes) is in git: `git show 10dffe3:code/TODO.md`.
 Follow `CONVENTIONS.md` as you work._
 
@@ -28,14 +28,14 @@ Pipeline state on disk (all rebuilt 2026-09-03 unless noted):
 - `complete.do` extract: the TX/FL/LA 50% draw is 1.5 GB; a cutoff near 0.17 gives ~500 MB. Not seeded.
 - ATTOM market value on the panel needs cleaning: ≥5% of matched properties carry exactly 0, max
   1.85e9. Zeros → missing, inspect the top tail, deflate (see item 3).
-- Anna: `nfip_attom.py` now reads only `clean/nfip_policies_property.dta` (first-policy-year snapshot
-  from `prep_nfip_policies.do` Section 2). `--state-policies` and the NFHL snapshot mode are removed;
-  `run_property_matching.sh` no longer passes the state file; `geocode_builty.py` moved to `clean/` and
-  writes `clean/builty_elevations_zipfilled.dta` (its Gen-1 `all_builty_elevations` backfill removed).
-  Review, then rerun the matching on the cluster against the rebuilt snapshot. Today's link merge
-  matched all 50.4M policy-years on `state property_id_state`, so the Aug 31 links still align.
-- Anna: archives and `data/` are untracked (gitignored) and several scripts were renamed/moved — pull
-  carefully; copy anything wanted from local archive folders first.
+- [x] Anna, 2026-09-07: reviewed the 09-03 matching changes; matching resubmitted on the cluster for
+  FL LA NJ TX from step 3 (`--from 3`, cached geocode + NFHL reused). `master.do` default `states` is
+  now FL LA NJ TX (20-state list kept in a comment). New since 09-06: `clean_builty.do` keeps elevated
+  new construction with `new_construction` / `retrofit` flags (retrofit counts unchanged);
+  `geocode_builty.py` returns block group + coordinates for every permit; `attom_builty.py` backfills
+  coordinates, block group and NFHL zone for Builty-elevated houses ATTOM could not place;
+  `nfip_attom.py` coalesces the block group and carries `builty_retrofit`, `builty_new_construction`,
+  `builty_geo_backfilled`; `complete.do` keeps those plus `match_tier_number`.
 
 ## 1. Canonical path — settled 2026-09-03
 
@@ -58,10 +58,19 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
 - The extraction net in `extract_builty.py` is complete (no elevation phrasing outside it; the dropped
   WORK_TYPES/ATTRIBUTES/PROJECTS fields carry nothing). ~1,200 LA permits describe house relocations —
   a separate outcome if ever wanted.
-- [ ] Add a retrofit vs elevated-new-construction differentiator, then tighten: N += residential|res|bldg|sfd,
-      act window 30 → 45, "raised house" in strong; precision kills for raised slab/foundation on new
-      builds, utilities/meters/condensers, boat lifts, EC-only permits. Hand-label ~300 survivors and
-      ~300 killed-but-likely in FL for a precision/recall number before and after.
+- [x] Retrofit vs elevated-new-construction differentiator -- done 2026-09-06: the new-construction
+      kill in `clean_builty.do` is now the `new_construction` flag (FL 633, LA 108, TX 66, NJ 0 new builds
+      kept; retrofit counts identical to before). Caveat: FL's raised-slab-on-new-build false positives
+      now sit inside `new_construction = 1`, so that bar overstates true elevated new builds until the
+      tightening below. `WORK_TYPES` is *not* empty (filled for 76% of survivors) but "New" there means a
+      new permit, not a new building (1,521 retrofits carry it), so it cannot define new construction.
+      ATTOM year built can: on the Aug links, 78 "retrofit" permits sit on houses built within a year of
+      the permit. Layer permit_year <= YEARBUILT + 1 into `builty_new_construction` in `attom_builty.py`.
+- [ ] Tighten the screen: N += residential|res|bldg|sfd, act window 30 → 45, "raised house" in strong;
+      precision kills for raised slab/foundation on new builds, utilities/meters/condensers, boat lifts,
+      EC-only permits; also a street named "Raising Hill Dr" trips the act regex. Hand-label ~300
+      survivors and ~300 killed-but-likely in FL for a precision/recall number before and after. Any
+      change here forces matching steps 3-4 to rerun. Deferred until the ATTOM permit-data quote is in.
 
 ## 3. Analysis-facing construction
 
@@ -77,24 +86,20 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
       so self-financed elevations can be measured (Builty elevation with no grant match). Flag
       local recovery programs (e.g. NYC Build It Back, `funding_type == 5` in `clean_builty.do`)
       before calling an elevation self-financed.
-- [ ] Builty → ATTOM → NFIP frequency loss (Anna; diagnosed 2026-09-03). Of 9,853 Builty
-      elevations, 7,089 match an ATTOM address and 5,576 reach an NFIP property. Two fixes, neither
-      touching the cell method:
-      (a) `attom_builty.py`: New York City addresses never match. Builty writes "42 WEST 12 ROAD
-          QUEENS" (borough appended, no ZIP, no county FIPS); ATTOM writes "101 W 12TH ST". Strip
-          the borough word, normalize ordinals, and derive county from the borough so the
-          no-ZIP county tier can fire. 822 of NY's 1,207 NYC permits are unmatched (30% state match
-          rate vs 85-92% elsewhere).
-      (b) `geocode_builty.py` / `attom_builty.py`: all 1,513 address-matched elevated houses that
-          never reach NFIP have no Census block group on the ATTOM side (geocode failed), hence no
-          NFHL flood zone, so they only see the ZIP/county tiers after the NFIP slots are taken.
-          Have the Builty geocode return block group + coordinates and backfill the ATTOM record
-          for matched houses; they then enter tiers 1-4 where Builty-first ranking protects them.
-      Also carry `match_tier_number` onto the panel so analysis can restrict to tiers 1-4.
+- [x] Builty → ATTOM → NFIP frequency loss (Anna; diagnosed 2026-09-03, fixed 2026-09-06). Of 9,853
+      Builty elevations, 7,089 matched an ATTOM address and 5,576 reached an NFIP property.
+      (a) NYC address normalization: dropped, New York left the sample with the four-state default.
+      (b) Done: `geocode_builty.py` geocodes every permit (4,922 of 5,945 get a block group);
+          `attom_builty.py` backfills coordinates, block group and NFHL zone (`--nfhl`) for matched
+          houses ATTOM could not place; `nfip_attom.py` coalesces the block-group key so they enter
+          tiers 1-4. `match_tier_number` and `builty_geo_backfilled` are on the panel. Check the
+          step-3 "backfilled" line and step-4 tier counts in the cluster logs when the rerun lands.
 - [ ] Tighten the Builty coverage threshold (currently any permit in the county-year). Options, in
-      order of effort: (a) benchmark against the housing stock -- Builty permits per 100 ATTOM
-      residential properties by county-year; a full feed runs roughly 5-15, a partial municipal feed
-      1-3, a trickle near 0 -- and set the floor as a rate; (b) add the ZIP-year index
+      order of effort: (a) DONE 2026-09-07, floor still to choose: `clean_builty_coverage_rate.py` adds
+      `attom_n_sf`, `builty_per_100`, `builty_covered_strict` (default floor 1 per 100) to
+      `clean/builty_coverage_county.dta`, carried onto the panel by `complete.do` without restricting
+      yet. Observed medians 2010-24: FL 17, TX 8, NJ 6, LA 4 per 100; a floor of 1 keeps 1,856 of
+      2,407 county-years. (b) add the ZIP-year index
       (`clean/builty_coverage_zip.dta`) as a strict tier: county covered and the property's own ZIP
       shows permits that year (conservative, since a third of permits lack a ZIP); (c) municipal
       matching -- Builty `LOCALITY` to the NFIP rated community number via FEMA's Community Status
@@ -104,6 +109,9 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
 - [ ] Further sample restrictions in `complete.do` Section 3 (Builty coverage is there now): SFHA
       and FMA eligibility, leaving `build/nfip_hma_panel.dta` as the unrestricted universe. Whether to
       also restrict on `attom_matched` is open — keep as a flag unless the analysis is matched-only.
-- [ ] Deflate ATTOM property values: `complete.do` carries `attom_value_year` but never merges
-      `clean/cpi.dta` (base 2023, `real = nominal / cpi`). Add the merge on `attom_value_year`, same
-      pattern as the FMA block in `clean_fma.do`; clean zeros and the top tail first (item 0).
+- [x] Deflate ATTOM property values -- done 2026-09-06 as a wide file: `attom_value_wide.py` writes
+      `build/attom_value_wide/{st}_attom_value_wide.parquet`, one row per ATTOM property, market value
+      by tax year in 2023 $, zeros and values above $100M set to missing; `attom_value_dta` converts the
+      NFIP-linked subset to Stata after the matching. Still open: merge it onto the panel in
+      `complete.do` and reshape long, and decide what to do with the 23% (LA) of property-years ATTOM
+      logs as exactly zero. `attom_market_value_total` on the panel is still nominal until then.

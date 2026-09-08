@@ -6,6 +6,8 @@ Description: Preliminary exhibits for the empirical-facts section.
     Figure 1  -- recorded elevation rate by claim and repetitive-loss group.
     Figure 2  -- recorded elevation rate across block groups ranked by realized loss.
     Figure 3  -- distribution of reported elevation project value.
+    Figure 4  -- Builty elevation permits by state: retrofit vs elevated new construction (09-07).
+    Figure 5  -- mitigation cost: Builty retrofit project value vs FMA federal share per property (09-07).
     Figure A1 -- raw NFIP premium rates by pricing regime, FIRM status, elevation.
 
     Everything here is descriptive, not causal. Builty elevations are observed
@@ -112,7 +114,7 @@ preserve
         ytitle("Recorded elevation permits per 1,000 linked properties") ///
         xlabel(1 "Low risk: non-SFHA" 2 "High risk: SFHA (A/V)", noticks)
     graph save "`output'/figures/figure_2a_low_vs_high_flood_zone.gph", replace
-    graph export "`output'/figures/figure_2a_low_vs_high_flood_zone.pdf", replace
+    graph export "`output'/figures/figure_2a_low_vs_high_flood_zone.png", width(2000) replace
 
     export excel high_flood_risk properties elevations elevations_per_1000 ///
         elevation_share_percent ci95_halfwidth using ///
@@ -182,14 +184,14 @@ twoway (rarea lo hi risk_group, color("`light'%35") lwidth(none)) ///
     ytitle("Recorded elevation permits per 1,000 properties") ///
     xlabel(0 "Zero" 1(1)10, noticks)
 graph save  "`output'/figures/figure_2_mitigation_by_realized_loss.gph", replace
-graph export "`output'/figures/figure_2_mitigation_by_realized_loss.pdf", replace
+graph export "`output'/figures/figure_2_mitigation_by_realized_loss.png", width(2000) replace
 
 * Table
 order risk_group block_groups properties elevations losses nfip_properties ///
     losses_per_nfip_property rate ci
 rename (rate ci) (elevations_per_1000 ci95_halfwidth)
 export excel using "`output'/tables/empirical_facts.xlsx", ///
-    sheet("realized_loss") firstrow(variables) replace
+    sheet("realized_loss") firstrow(variables) sheetreplace
 
 * -----------------------------------------------------------------------------
 * Figure 1 graph and table (built from the counts posted above)
@@ -227,7 +229,7 @@ twoway (bar rate order, horizontal barwidth(0.6) color("`blue'")) ///
     ytitle("") ylabel(1/`=_N', valuelabel angle(0) noticks labsize(vsmall)) ///
     xscale(range(0 `=`right' * 1.15'))
 graph save  "`output'/figures/figure_1_mitigation_is_rare.gph", replace
-graph export "`output'/figures/figure_1_mitigation_is_rare.pdf", replace
+graph export "`output'/figures/figure_1_mitigation_is_rare.png", width(2000) replace
 
 keep property_group observed_n elevated_n rate ci
 rename (observed_n elevated_n rate ci) (properties_with_builty_measure ///
@@ -258,7 +260,7 @@ histogram cost, bin(30) frequency fcolor("`blue'") lcolor(white) ///
     ytitle("Properties") ///
     xline(`median', lcolor("`orange'") lwidth(medthick) lpattern(dash))
 graph save  "`output'/figures/figure_3_elevation_costs.gph", replace
-graph export "`output'/figures/figure_3_elevation_costs.pdf", replace
+graph export "`output'/figures/figure_3_elevation_costs.png", width(2000) replace
 
 * Table
 qui sum project_value, detail
@@ -302,10 +304,101 @@ twoway (bar mean_rate x if !elevated, barwidth(0.36) color("`light'")) ///
     xlabel(1 `""Legacy" "Pre-FIRM""' 2 `""Legacy" "Post-FIRM""' ///
         3 `""RR2.0" "Pre-FIRM""' 4 `""RR2.0" "Post-FIRM""', noticks)
 graph save  "`output'/figures/figure_a1_raw_premium_rates.gph", replace
-graph export "`output'/figures/figure_a1_raw_premium_rates.pdf", replace
+graph export "`output'/figures/figure_a1_raw_premium_rates.png", width(2000) replace
 
 * Table
 drop stratum x
 rename (mean_rate ci) (mean_premium_rate_percent ci95_halfwidth)
 export excel using "`output'/tables/empirical_facts.xlsx", ///
     sheet("premium_rates") firstrow(variables) sheetreplace
+
+* -----------------------------------------------------------------------------
+* Figure 4: retrofit vs elevated new construction, by state (09-07)
+* -----------------------------------------------------------------------------
+
+* Note: clean_builty.do keeps elevated new construction since 09-06 (new_construction = 1)
+use state retrofit new_construction using "`data'/clean/builty_elevations.dta", clear
+gen one = 1
+collapse (sum) properties = one retrofits = retrofit new_builds = new_construction, by(state)
+gen share_new = 100 * new_builds / properties
+gsort -properties
+gen order = _n
+forvalues i = 1/`=_N' {
+    label define state_order4 `=order[`i']' "`=state[`i']'", add
+}
+label values order state_order4
+
+graph bar retrofits new_builds, over(order, label(labsize(small))) stack ///
+    bar(1, color("`blue'")) bar(2, color("`orange'")) ///
+    `opts' ///
+    legend(order(1 "Retrofit: existing structure raised" 2 "Elevated new construction") ///
+        rows(1) pos(6) region(lcolor(white)) size(small)) ///
+    blabel(total, size(vsmall) format(%9.0fc)) ///
+    ytitle("Properties with a Builty elevation permit") ///
+    title("Most Builty elevation permits are retrofits", pos(11) size(medium)) ///
+    subtitle("Screened permits, one row per property; new construction identified from permit text", ///
+        pos(11) size(vsmall) color(gs7))
+graph save  "`output'/figures/figure_4_retrofit_vs_new_construction.gph", replace
+graph export "`output'/figures/figure_4_retrofit_vs_new_construction.png", width(2000) replace
+
+keep state properties retrofits new_builds share_new
+export excel using "`output'/tables/empirical_facts.xlsx", ///
+    sheet("retrofit_vs_new") firstrow(variables) sheetreplace
+
+* -----------------------------------------------------------------------------
+* Figure 5: mitigation cost, Builty retrofit permits vs FMA grants (09-07)
+* -----------------------------------------------------------------------------
+
+* Builty: reported project value on retrofit permits; unreported rather than zero
+// Note: LA permits carry no project value at all
+use state retrofit project_value using "`data'/clean/builty_elevations.dta", clear
+keep if retrofit == 1 & project_value > 0 & !mi(project_value)
+gen source = 1
+rename project_value cost
+tempfile builty_cost
+save `builty_cost'
+
+* FMA: federal share obligated per property in the project (2023 $)
+use state fma_spend n_properties using "`data'/clean/fma_elevation.dta", clear
+replace state = "FL" if state == "Florida"
+replace state = "LA" if state == "Louisiana"
+replace state = "NJ" if state == "New Jersey"
+replace state = "TX" if state == "Texas"
+keep if inlist(state, "FL", "LA", "NJ", "TX") & fma_spend > 0 & n_properties > 0
+gen cost = fma_spend / n_properties
+gen source = 2
+append using `builty_cost'
+gen ln_cost = ln(cost)
+label define source_lbl 1 "Builty retrofit permit: project value" 2 "FMA grant: federal share per property"
+label values source source_lbl
+
+* Medians for the subtitle and the table
+qui sum cost if source == 1, detail
+local med_builty = r(p50)
+local n_builty = r(N)
+qui sum cost if source == 2, detail
+local med_fma = r(p50)
+local n_fma = r(N)
+
+twoway (histogram ln_cost if source == 1, percent width(0.25) color("`orange'%60")) ///
+       (histogram ln_cost if source == 2, percent width(0.25) color("`blue'%60")), ///
+    `opts' ///
+    legend(order(1 "Builty retrofit permit: project value (N = `=string(`n_builty', "%9.0fc")')" ///
+                 2 "FMA grant: federal share per property (N = `=string(`n_fma', "%9.0fc")')") ///
+        rows(2) pos(6) region(lcolor(white)) size(small)) ///
+    xtitle("Cost per property, 2023 dollars (log scale)") ytitle("Percent") ///
+    xlabel(`=ln(10000)' "10k" `=ln(30000)' "30k" `=ln(100000)' "100k" ///
+           `=ln(300000)' "300k" `=ln(1000000)' "1m") ///
+    title("Permit values sit far below what FMA pays per elevation", pos(11) size(medium)) ///
+    subtitle("Medians: Builty \$`=string(`med_builty' / 1000, "%9.0f")'k, FMA \$`=string(`med_fma' / 1000, "%9.0f")'k; FL LA NJ TX", ///
+        pos(11) size(vsmall) color(gs7))
+graph save  "`output'/figures/figure_5_mitigation_cost.gph", replace
+graph export "`output'/figures/figure_5_mitigation_cost.png", width(2000) replace
+
+* Table
+collapse (count) n = cost (p25) p25 = cost (p50) median = cost (p75) p75 = cost, by(source)
+decode source, gen(source_name)
+drop source
+order source_name
+export excel using "`output'/tables/empirical_facts.xlsx", ///
+    sheet("mitigation_cost") firstrow(variables) sheetreplace
