@@ -173,8 +173,7 @@ graph hbar builty hma_hmgp hma_fma, over(order, label(labsize(small))) ///
         rows(1) pos(6) region(lcolor(white)) size(small)) ///
     ytitle("Elevated single-family properties", size(small)) ///
     blabel(bar, size(tiny) format(%9.0fc)) ///
-    title("Home elevations by state and data source", pos(11) size(medium)) ///
-    subtitle("Builty: screened retrofit permits, unique addresses. HMA: approved projects, properties per record.", ///
-        pos(11) size(vsmall) color(gs7))
+    note("Builty: screened retrofit permits, unique addresses. HMA: approved projects, properties per record.", ///
+        pos(7) size(vsmall) color(gs7))
 graph save   "`output'/figures/elevations_by_state.gph", replace
 graph export "`output'/figures/elevations_by_state.png", width(2400) replace

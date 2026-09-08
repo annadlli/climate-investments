@@ -107,9 +107,8 @@ preserve
     twoway (bar elevations_per_1000 group_order, barwidth(0.62) color("`blue'")) ///
            (rcap lo hi group_order, lcolor("36 55 70")), ///
         `opts' legend(off) ///
-        title("Elevation by NFIP rated flood-risk zone", pos(11) size(medium)) ///
-        subtitle("High risk is SFHA: rated A/V zones; 95% CI", ///
-            pos(11) size(vsmall) color(gs7)) ///
+        note("High risk is SFHA: rated A/V zones; 95% CI", ///
+            pos(7) size(vsmall) color(gs7)) ///
         xtitle("") ///
         ytitle("Recorded elevation permits per 1,000 linked properties") ///
         xlabel(1 "Low risk: non-SFHA" 2 "High risk: SFHA (A/V)", noticks)
@@ -176,10 +175,8 @@ twoway (rarea lo hi risk_group, color("`light'%35") lwidth(none)) ///
        (line rate risk_group, lcolor("`blue'") lwidth(medthick)) ///
        (scatter rate risk_group, mcolor("`blue'") msize(small)), ///
     `opts' legend(off) ///
-    title("Elevation rises with realized losses, but stays extremely rare", ///
-        pos(11) size(medium)) ///
-    subtitle("Block groups with at least `min_observed' properties carrying a Builty measure; 95% CI", ///
-        pos(11) size(vsmall) color(gs7)) ///
+    note("Block groups with at least `min_observed' properties carrying a Builty measure; 95% CI", ///
+        pos(7) size(vsmall) color(gs7)) ///
     xtitle("Realized-loss group (positive-loss block groups ranked low to high)") ///
     ytitle("Recorded elevation permits per 1,000 properties") ///
     xlabel(0 "Zero" 1(1)10, noticks)
@@ -221,10 +218,8 @@ twoway (bar rate order, horizontal barwidth(0.6) color("`blue'")) ///
        (scatter order labelpos, msymbol(none) mlabel(ratelabel) ///
             mlabcolor(black) mlabsize(vsmall) mlabpos(3)), ///
     `opts' legend(off) ///
-    title("Home elevation is rare at every level of flood risk", ///
-        pos(11) size(medium)) ///
-    subtitle("Builty permits linked to NFIP properties through assigned ATTOM records", ///
-        pos(11) size(vsmall) color(gs7)) ///
+    note("Builty permits linked to NFIP properties through assigned ATTOM records", ///
+        pos(7) size(vsmall) color(gs7)) ///
     xtitle("Properties with a recorded elevation permit per 1,000") ///
     ytitle("") ylabel(1/`=_N', valuelabel angle(0) noticks labsize(vsmall)) ///
     xscale(range(0 `=`right' * 1.15'))
@@ -253,9 +248,8 @@ replace cost = min(cost, `top') // top-code the tail so the axis is readable
 
 histogram cost, bin(30) frequency fcolor("`blue'") lcolor(white) ///
     `opts' ///
-    title("Elevation requires a large up-front investment", pos(11) size(medium)) ///
-    subtitle("Dashed line is the median, \$`=string(`median', "%9.0fc")'k", ///
-        pos(11) size(vsmall) color(gs7)) ///
+    note("Dashed line is the median, \$`=string(`median', "%9.0fc")'k", ///
+        pos(7) size(vsmall) color(gs7)) ///
     xtitle("Reported elevation project value (\$1,000s, top 5% winsorized)") ///
     ytitle("Properties") ///
     xline(`median', lcolor("`orange'") lwidth(medthick) lpattern(dash))
@@ -295,10 +289,8 @@ twoway (bar mean_rate x if !elevated, barwidth(0.36) color("`light'")) ///
     `opts' ///
     legend(order(1 "Not recorded elevated" 2 "Recorded elevated") ///
         pos(1) ring(0) col(1) region(lcolor(white)) size(vsmall)) ///
-    title("Raw premium differences do not identify elevation savings", ///
-        pos(11) size(medium)) ///
-    subtitle("Descriptive policy-year means; elevated properties are selected on flood risk", ///
-        pos(11) size(vsmall) color(gs7)) ///
+    note("Descriptive policy-year means; elevated properties are selected on flood risk", ///
+        pos(7) size(vsmall) color(gs7)) ///
     xtitle("") ytitle("Mean premium as percent of building coverage") ///
     yscale(range(0)) ylabel(0(0.1)0.7) ///
     xlabel(1 `""Legacy" "Pre-FIRM""' 2 `""Legacy" "Post-FIRM""' ///
@@ -335,9 +327,8 @@ graph bar retrofits new_builds, over(order, label(labsize(small))) stack ///
         rows(1) pos(6) region(lcolor(white)) size(small)) ///
     blabel(total, size(vsmall) format(%9.0fc)) ///
     ytitle("Properties with a Builty elevation permit") ///
-    title("Most Builty elevation permits are retrofits", pos(11) size(medium)) ///
-    subtitle("Screened permits, one row per property; new construction identified from permit text", ///
-        pos(11) size(vsmall) color(gs7))
+    note("Screened permits, one row per property; new construction identified from permit text", ///
+        pos(7) size(vsmall) color(gs7))
 graph save  "`output'/figures/figure_4_retrofit_vs_new_construction.gph", replace
 graph export "`output'/figures/figure_4_retrofit_vs_new_construction.png", width(2000) replace
 
@@ -389,9 +380,8 @@ twoway (histogram ln_cost if source == 1, percent width(0.25) color("`orange'%60
     xtitle("Cost per property, 2023 dollars (log scale)") ytitle("Percent") ///
     xlabel(`=ln(10000)' "10k" `=ln(30000)' "30k" `=ln(100000)' "100k" ///
            `=ln(300000)' "300k" `=ln(1000000)' "1m") ///
-    title("Permit values sit far below what FMA pays per elevation", pos(11) size(medium)) ///
-    subtitle("Medians: Builty \$`=string(`med_builty' / 1000, "%9.0f")'k, FMA \$`=string(`med_fma' / 1000, "%9.0f")'k; FL LA NJ TX", ///
-        pos(11) size(vsmall) color(gs7))
+    note("Medians: Builty \$`=string(`med_builty' / 1000, "%9.0f")'k, FMA \$`=string(`med_fma' / 1000, "%9.0f")'k; FL LA NJ TX", ///
+        pos(7) size(vsmall) color(gs7))
 graph save  "`output'/figures/figure_5_mitigation_cost.gph", replace
 graph export "`output'/figures/figure_5_mitigation_cost.png", width(2000) replace
 
