@@ -81,12 +81,13 @@ local complete                          = 0 // compile final analysis dataset
 
 // v) Descriptives
 local summary_stats                     = 0 // create summary statistics table
-local summary_histograms                = 0 // histograms of cumulative claims and elevation project cost
+local histograms                        = 0 // histograms of cumulative claims and elevation project cost
 local elevations_by_state               = 0 // count elevation retrofits by state in Builty and HMA (deck tab)
 local builty_coverage_table             = 0 // Builty permit coverage by state for the deck (Claude change 09-07)
+local empirical_facts                   = 0 // create empirical-facts figures and tables
 
 // vi) Analysis
-local empirical_facts                   = 0 // create empirical-facts figures and tables
+local es_prices_mitigation              = 0 // elevation discount + event studies: prices do not reward mitigation
 
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
@@ -200,17 +201,20 @@ if `attom_value_dta' == 1 {
 if `summary_stats' == 1 {
     do "`code'/descriptives/summary_table.do" "`data'" "`output'"
 }
-if `summary_histograms' == 1 {
-    do "`code'/descriptives/summary_histograms.do" "`data'" "`output'"
+if `histograms' == 1 {
+    do "`code'/descriptives/histograms.do" "`data'" "`output'"
 }
 if `elevations_by_state' == 1 {
-    do "`code'/descriptives/elevations_by_state.do" "`data'" "`output'"
+    do "`code'/descriptives/scratch/elevations_by_state.do" "`data'" "`output'"
 }
 if `builty_coverage_table' == 1 {
-    do "`code'/descriptives/builty_coverage_table.do" "`data'" "`output'"
+    do "`code'/descriptives/scratch/builty_coverage_table.do" "`data'" "`output'"
+}
+if `empirical_facts' == 1 {
+    do "`code'/descriptives/scratch/empirical_facts_figures.do" "`data'" "`output'"
 }
 
 // vi) Analysis
-if `empirical_facts' == 1 {
-    do "`code'/analysis/empirical_facts_figures.do" "`data'" "`output'"
+if `es_prices_mitigation' == 1 {
+    do "`code'/analysis/es_prices_mitigation.do" "`data'" "`output'"
 }
