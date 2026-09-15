@@ -96,6 +96,12 @@ gen elevated_nfip = !mi(nfip_elevation_year)
 gen elevated_builty = builty_retrofit == 1
 // 09-14: a new build's declared value is its construction cost, not an elevation cost, so the cost is kept for retrofits only
 replace builty_project_value = . if builty_retrofit != 1
+// Claude change 09-15: values outside $1,000-$1,000,000 (2023 $) are not elevation costs.
+// Below: paperwork lines (spot-elevation documents, an EV charger "above BFE"), 3.8% of
+// retrofit values. Above: a pump-station upgrade ($7.3M), new elevated homes and raised
+// slabs the screen let through, 0.9%. Kept here rather than in clean_builty.do so a change
+// to the rule does not force the matching to rerun; the permit still counts as an elevation.
+replace builty_project_value = . if builty_project_value < 1000 | builty_project_value > 1000000
 
 * Harmonize all sources to create one elvation indicator
 * Priority is Builty, elevation NFIP, then ICC claim

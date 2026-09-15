@@ -39,6 +39,12 @@ Pipeline state on disk (all rebuilt 2026-09-03 unless noted):
 - [x] Claude change 09-10: state sample settled (issue #16, Vendela 09-08): `states` is FL LA TX; NJ dropped for lack of
   Builty coverage. The 09-08 six-state widening (NC NY) is reverted; NC and NY link files on disk
   are the stale Aug 17 versions and are not used.
+- [x] Claude change 09-15: Builty cost cleaned (Vendela's slide notes). `complete.do` sets
+      `builty_project_value` to missing outside $1,000-$1,000,000 (2023 $) next to the retrofit-only
+      line: the low tail is paperwork lines, the high tail a pump station and new builds the screen
+      let through (11 above, 48 below, of 1,257). Placed in the build step, not `clean_builty.do`,
+      so a change to the rule does not force the matching to rerun (Anna's call, 09-15).
+      `histograms.do` now draws both panels from `analysis.dta` on one x-axis.
 - [x] Claude change 09-10 (done 09-14, redone 09-15 with the loose rungs): rerun for the 09-10 pipeline changes (issues #23-#26), in order:
   `clean_nfip_claims` (adds `claim_icc`; note the `stop` Vendela left before the claims cap) →
   `merge_nfip_fma` (carries `claim_icc`, `hmgp_n_properties`) ← `prep_fma` (HMGP county counts);
@@ -187,3 +193,17 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
       missing upstream (`--min-value`), replacing the ad hoc `>= 10000` screen that sat in
       `summary_table.do`; the nominal `attom_market_value_total` is dropped from `analysis.dta`.
       Still open: what the 23% (LA) of property-years logged as exactly zero mean.
+
+## 4. Descriptives — empirical facts (Claude change 09-15)
+
+- [ ] Claude change 09-15: `descriptives/scratch/empirical_facts_six_questions.do` answers the six
+      empirical-facts questions (adoption per 1,000 at-risk homes by prior claims / RL status;
+      adoption by within-county x SFHA value quintile; permit cost in dollars and as a share of
+      pre-permit value, HMA total cost and federal share kept apart; county FMA dollars vs
+      repetitive-loss and loss shares and by county value; permit hazard by years since a major
+      claim vs grant obligation timing; premium and claims event studies plus a same-flood
+      comparison). Scratch script, run by hand (invocation in its banner); not in `master.do`.
+      Writes `output/tables/empirical_facts_six_questions.xlsx` and `output/figures/q1_*` to `q6_*`.
+      Event = Builty retrofit permit; denominators = ATTOM-linked homes in strictly covered
+      county-years, 2010-2024. Open: prior claims are panel-observed (2009 on) only; the
+      same-flood comparison uses a 5% control draw.
