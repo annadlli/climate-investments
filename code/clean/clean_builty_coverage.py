@@ -1,6 +1,7 @@
 """
 Author: Vendela Norman
 Date: 2026-09-03
+Revised: 2026-09-07
 
 Description: Builds a Builty permit-coverage index from the raw permits parquet:
     permit counts (all permit types) by county x year and by ZIP x year, with a
@@ -9,12 +10,8 @@ Description: Builds a Builty permit-coverage index from the raw permits parquet:
     covered county-years cannot show a Builty elevation, so the flag restricts the
     analysis sample rather than treating them as not elevated.
 
-    Claude change 2026-09-07 (Anna): also writes the crosswalk at the finest unit
+    2026-09-07:  writes the crosswalk at the finest unit
     the raw file has, permit-issuing LOCALITY x year
-    (clean/builty_coverage_locality.dta), with the county each locality sits in
-    and the first/last year it reports. --raw overrides the parquet path for a
-    machine that keeps it elsewhere. The housing-stock columns are added to the
-    county file afterwards by clean_builty_coverage_rate.py.
 
 Notes: County FIPS is near-complete except New York City, whose feed carries no
     county; boroughs are assigned from the ZIP prefix there. The three date fields

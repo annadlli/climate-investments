@@ -1,7 +1,7 @@
 /******************************************************************************
 Authors: Vendela Norman, Anna Li
 Date: 2026-09-03 
-Edited: 2026-09-13
+Edited: 2026-09-15
 
 Description: Prepares the final analysis dataset: restricts the NFIP-FMA panel to
     county-years with Builty permit coverage, merges in the ATTOM/Builty property
@@ -11,7 +11,7 @@ Description: Prepares the final analysis dataset: restricts the NFIP-FMA panel t
     parsimonious variable set; analysis_with_diagnostics.dta adds the match and
     coverage diagnostics (issue #23).
 
-Revisions: Keep Builty cost and funding columns, attempt to harmonize elvation variable, and save diagnostics as separate
+Revisions: Keep Builty cost and funding columns, attempt to harmonize elevation variable, and save diagnostics as separate, add floor and ceiling to Builty cost
 ******************************************************************************/
 
 args data states
@@ -96,7 +96,7 @@ gen elevated_nfip = !mi(nfip_elevation_year)
 gen elevated_builty = builty_retrofit == 1
 // 09-14: a new build's declared value is its construction cost, not an elevation cost, so the cost is kept for retrofits only
 replace builty_project_value = . if builty_retrofit != 1
-// Claude change 09-15: values outside $1,000-$1,000,000 (2023 $) are not elevation costs.
+// 09-15: add ceiling and floor values  $1,000-$1,000,000 (2023 $) 
 // Below: paperwork lines (spot-elevation documents, an EV charger "above BFE"), 3.8% of
 // retrofit values. Above: a pump-station upgrade ($7.3M), new elevated homes and raised
 // slabs the screen let through, 0.9%. Kept here rather than in clean_builty.do so a change

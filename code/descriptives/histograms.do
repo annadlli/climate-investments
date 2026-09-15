@@ -1,7 +1,7 @@
 /******************************************************************************
 Authors: Anna Li
 Date: 2026-09-02
-
+Revised: 2026-09-14
 Description: Histograms of cumulative NFIP claims and declared elevation cost, both
     from the analysis panel. Both are long-tailed -- claims run past $1m, elevation cost past
     $10m -- so a raw axis is one spike at the left. The x-axis is logged with
@@ -14,8 +14,7 @@ Description: Histograms of cumulative NFIP claims and declared elevation cost, b
 args data output
 
 * Set figure options
-// Claude change 09-15 (Vendela's slide notes): both panels from analysis.dta, one x-axis
-// so the overlap of the two distributions is visible, larger labels, no source name
+// 09-14: both panels from analysis.dta, one x-axis so the overlap of the two distributions is visible, larger labels, no source name
 local xmin = ln(1000)
 local xmax = ln(10000000)
 local dollars `=ln(1000)' "1k" `=ln(10000)' "10k" `=ln(100000)' "100k" ///
@@ -38,7 +37,7 @@ bysort property_id (policy_year): keep if _n == _N
 
 * Cumulative claims, among properties that ever claimed
 preserve
-    // Claude change 09-15: the same $1k floor as the cost panel, so both axes start at 1k
+    // 09-15: the same $1k floor as the cost panel, so both axes start at 1k: note floor and ceiling applied in complete.do
     keep if cumulative_claims >= 1000 & !mi(cumulative_claims)
     gen ln_claim = ln(cumulative_claims)
     qui sum cumulative_claims, detail
@@ -52,9 +51,6 @@ preserve
 restore
 
 * Elevation cost, among retrofit homes reporting one
-// Claude change 09-15, stopgap: the $1k-$1M rule also sits in complete.do (build step) and
-// reaches the panel at its next run; applied here meanwhile so the figure is right for the
-// 09-16 meeting. Remove this line once complete.do has rerun.
 replace builty_project_value = . if builty_project_value < 1000 | builty_project_value > 1000000
 keep if builty_project_value > 0 & !mi(builty_project_value)
 gen ln_cost = ln(builty_project_value)

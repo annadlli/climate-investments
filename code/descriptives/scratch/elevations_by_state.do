@@ -1,20 +1,12 @@
 /******************************************************************************
 Author: Anna Li
-Date: 2026-09-05 (rewritten 2026-09-08 to read the clean files)
+Date: 2026-09-05 
+Revised： 2026-09-15
 
 Description: Home-elevation retrofits by state, properties not projects, in
     Builty, in FEMA HMA (all programs, HMGP, FMA incl. SRL) and in NFIP, for the
     deck's "Elevations by State" tab. One table and one figure.
-    Claude change 09-15: NFIP series added, counted over the 20-state NFIP-HMA
-    panel. The figure plots properties whose NFIP elevated flag flips 0 -> 1; the
-    table also carries ICC payments and the union (the elevated_nfip definition
-    in complete.do). ICC is left off the bars because NJ alone has 8,197 Sandy-era
-    ICC payments, which would set the axis. No bar labels (numbers are in the
-    table); legend inside the plot so the deck cannot clip it.
-
-Inputs:  the per-state files in clean/builty_states, clean/fma_elevation.dta, build/nfip_hma_panel.dta
-Outputs: ../output/tables/elevations_by_state.xlsx
-         ../output/figures/elevations_by_state.{gph,png}
+     09-15: NFIP series added, including ICC and elevated flag flips
 
 ******************************************************************************/
 
@@ -25,7 +17,7 @@ local sample_states "AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA RI SC TX VT VA
 local blue   "23 107 135"
 local light  "142 202 230"
 local orange "224 122 95"
-local gray   "110 110 110" // Claude change 09-15: NFIP bar
+local gray   "110 110 110" // 09-15: NFIP bar
 local opts graphregion(color(white)) plotregion(color(white))
 
 * -----------------------------------------------------------------------------
@@ -45,9 +37,7 @@ gen hma_total = hma_fma + hma_hmgp + hma_other
 tempfile hma
 save `hma'
 
-* NFIP: properties whose elevated flag flips 0 -> 1 or that receive an ICC payment (Claude change 09-15)
-// Same definition as elevated_nfip in complete.do, over every state in the NFIP-HMA panel.
-// The flag is a stock, so flips are the only dated elevation signal NFIP carries.
+* NFIP: properties whose elevated flag flips 0 -> 1 or that receive an ICC payment (09-15)
 use state property_id policy_year elevated claim_icc using "`data'/build/nfip_hma_panel.dta", clear
 sort property_id policy_year
 by property_id: gen flip = elevated == 1 & elevated[_n-1] == 0 if _n > 1
@@ -104,7 +94,7 @@ foreach ab of local abbrevs {
     replace state_abbrev = "`ab'" if state == "`nm'" & mi(state_abbrev)
     local i = `i' + 1
 }
-merge 1:1 state_abbrev using `nfip', nogen // Claude change 09-15
+merge 1:1 state_abbrev using `nfip', nogen // 09-15
 foreach var in nfip_any nfip_flip nfip_icc {
     replace `var' = 0 if mi(`var')
 }
@@ -119,7 +109,7 @@ label var hma_total    "HMA elevations, all programs (properties)"
 label var hma_hmgp     "HMGP elevations (properties)"
 label var hma_fma      "FMA + SRL elevations (properties)"
 label var hma_other    "Other HMA programs (properties)"
-label var nfip_any     "NFIP elevations: flag flip or ICC payment (properties)" // Claude change 09-15
+label var nfip_any     "NFIP elevations: flag flip or ICC payment (properties)" 
 label var nfip_flip    "NFIP elevated flag flips 0 to 1 (properties)"
 label var nfip_icc     "NFIP ICC payment received (properties)"
 
@@ -138,14 +128,14 @@ forvalues i = 1/`=_N' {
     label define state_order `=order[`i']' "`=state_abbrev[`i']'", add
 }
 label values order state_order
-// Claude change 09-15: NFIP bar added; bar labels off (Anna, after trying them on);
+// 09-15: NFIP bar added; bar labels off 
 // legend inside the plot at the lower right, where the small states leave room
 graph hbar builty hma_hmgp hma_fma nfip_flip, over(order, label(labsize(small)) gap(30)) ///
     bar(1, color("`orange'")) bar(2, color("`light'")) bar(3, color("`blue'")) bar(4, color("`gray'")) ///
-    `opts' xsize(8) ysize(5) ylabel(0(1000)3000) yscale(range(0 3600)) /// Claude change 09-15: slide-shaped canvas
+    `opts' xsize(8) ysize(5) ylabel(0(1000)3000) yscale(range(0 3600)) /// 
     legend(order(1 "Builty elevation permits" 2 "HMGP-funded" 3 "FMA-funded" ///
         4 "NFIP: elevated flag flips 0 to 1") ///
         cols(1) pos(5) ring(0) region(lcolor(white) fcolor(white)) size(small)) ///
-    ytitle("Elevated single-family properties", size(small)) // Claude change 09-15: no note (Anna); source definitions are in the banner
+    ytitle("Elevated single-family properties", size(small)) 
 graph save   "`output'/figures/elevations_by_state.gph", replace
 graph export "`output'/figures/elevations_by_state.png", width(2400) replace

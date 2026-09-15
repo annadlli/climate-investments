@@ -86,11 +86,11 @@ local merge_datasets                    = 0 // runs all of the torch scripts exc
 local parquet_dta                       = 0 // convert parquet file to Stata
 local attom_value_wide                  = 0 // ATTOM value by tax year, one row per property, 2023 $ (added 2026-09-06)
 local attom_value_dta                   = 0 // Stata copy of the value file, restricted to ATTOM properties linked to NFIP (after parquet_dta)
-local complete                          = 0 // compile final analysis dataset 
+local complete                          = 1 // compile final analysis dataset 
 
 // v) Descriptives
-local summary_stats                     = 0 // create summary statistics table
-local histograms                        = 0 // histograms of cumulative claims and elevation project cost
+local summary_stats                     = 1 // create summary statistics table
+local histograms                        = 1 // histograms of cumulative claims and elevation project cost
 local elevations_by_state               = 0 // count elevation retrofits by state in Builty and HMA (deck tab)
 local builty_coverage_table             = 0 // Builty permit coverage by state for the deck 
 local empirical_facts                   = 0 // create empirical-facts figures and tables
