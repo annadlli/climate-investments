@@ -16,7 +16,7 @@ agents) propose changes to her.
 Flood-mitigation home elevations + how FEMA mitigation funding is allocated vs property wealth and
 flood risk. Stata (`.do`) + Python (`.py`, `.ipynb`). Econ PhD work; collaborator: Anna Li.
 
-**Scope:** NFIP policies and FEMA FMA run over the 20 sample states (`local states` in `master.do`).
+**Scope** (Claude change 09-10)**:** the default sample is the three key states FL LA TX (`local states` in `master.do`, settled 2026-09-08); the 20-state list is kept in a comment there and every script takes the states as an argument.
 ATTOM and Builty cover all 20 too (property links for all 20 as of Aug 31). The active pipeline is one
 route (settled 2026-09-03; `compile2.do` deleted, `final_data.do` archived): `clean_nfip_policies` →
 `prep_nfip_policies` (panel + first-policy-year snapshot) → `merge_nfip_fma` (claims, multiple-loss,
@@ -58,7 +58,7 @@ build/prep_nfip_policies.do       -> clean/nfip_policies_panel.dta + clean/nfip_
 build/merge_nfip_fma.do           -> build/nfip_hma_panel.dta             (NFIP property-year panel + claims, multiple-loss, FMA)
 slurm/run_property_matching.sh    -> build/nfip_attom_pipeline_v2/...     (ATTOM geocode/NFHL/Builty/property matching jobs)
 build/parquet_dta.py              -> build/nfip_attom_property/{st}_nfip_attom_property.dta
-build/complete.do                 -> analysis/analysis.dta                 (property-year analysis set: panel + ATTOM/Builty links)
+build/complete.do                 -> analysis/analysis.dta + analysis/analysis_with_diagnostics.dta  (property-year analysis set: panel + ATTOM/Builty links + harmonized elevation; the second file keeps the match/coverage diagnostics; Claude change 09-10)
 descriptives/summary_table.do     -> ../output/tables/summary_table.{dta,xlsx}  (summary_stats switch)
 build/alternates/attom_value_cells.py -> build/{state}_attom_value_{zip,county}_{year,decade}.dta
                                      (.sh = Torch/SLURM wrapper)
@@ -77,7 +77,10 @@ cells — NFIP has no street address, so these merge property values onto the NF
 appends and collapses them to the property level (`clean/builty_elevations.dta`, keyed on
 `street_address`). Because Builty carries an exact address, it is joined to **ATTOM 1:1 on
 `street_address`** (`attom_builty.py`, cluster), and reaches NFIP from the ATTOM side via the Wagner
-cell — not a zip/county pool. Builty's permit feeds are patchy (322 of ~1,100 counties report anything),
+cell — not a zip/county pool. The address ladder is six exact tiers plus, since 2026-09-15, two
+looser rungs (house number + first street word + ZIP, unique in the ZIP; then Jaro-Winkler on the
+street string), which lift the permit match rate to FL 86%, LA 92%, TX 95%; each match carries its
+rung in `builty_attom_match_tier` (Claude change 09-15). Builty's permit feeds are patchy (322 of ~1,100 counties report anything),
 so `clean_builty_coverage.py` counts all raw permits by county-year and `complete.do` restricts the
 panel to covered county-years: outside them an unmatched property is unobserved, not unelevated. The
 Gen-1 Builty chain (`build_builty_filter` / `build_split_builty_states` /

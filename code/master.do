@@ -16,15 +16,16 @@ set seed 20260903
 * Paths 
 * -----------------------------------------------------------------------------
 
-* --- Vendela ---
-local code "/Users/vendelasolvindnorman/Documents/Econ_PhD/Projects/climate-investments/code"
-local data "/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
-local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
-
-* --- Anna ---
-/* local code "/Users/anna/Desktop/climate-investments/code"
-local data "/Users/anna/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
-local python "/opt/anaconda3/bin/python" */
+if "`c(username)'" == "anna" {
+    local code "/Users/anna/Desktop/climate-investments/code"
+    local data "/Users/anna/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
+    local python "/opt/anaconda3/bin/python"
+}
+else {
+    local code "/Users/vendelasolvindnorman/Documents/Econ_PhD/Projects/climate-investments/code"
+    local data "/Users/vendelasolvindnorman/Library/CloudStorage/Dropbox/Flooding/Empirical/Data"
+    local python "/Users/vendelasolvindnorman/anaconda3/bin/python3"
+}
 
 * --- Derived (same for everyone) ---
 local output "`code'/../output" 
@@ -34,8 +35,16 @@ local output "`code'/../output"
 * -----------------------------------------------------------------------------
 
 // States 
-// narrowed it down here to the new four states
-local states "FL LA NJ TX"
+// NJ dropped for lack of Builty
+// coverage. The 20-state list is AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA
+// RI SC TX VT VA; every script takes `states' as an argument, so widening is
+// a one-line change here.
+local states "FL LA TX"
+
+// Matching driver options (merge_datasets): rerun from this step where outputs exists 09-13
+local matching_from "3"
+local matching_memory "8GB"
+local matching_tmp "`code'/../tmp/matching"
 
 // Dewey/ATTOM acquisition inputs. The manifest is private because it contains
 // licensed Dewey endpoint URLs. extract_attom requires an existing run id.
@@ -83,7 +92,7 @@ local complete                          = 0 // compile final analysis dataset
 local summary_stats                     = 0 // create summary statistics table
 local histograms                        = 0 // histograms of cumulative claims and elevation project cost
 local elevations_by_state               = 0 // count elevation retrofits by state in Builty and HMA (deck tab)
-local builty_coverage_table             = 0 // Builty permit coverage by state for the deck (Claude change 09-07)
+local builty_coverage_table             = 0 // Builty permit coverage by state for the deck 
 local empirical_facts                   = 0 // create empirical-facts figures and tables
 
 // vi) Analysis
@@ -160,9 +169,6 @@ if `prep_nfip_policies' == 1 {
 if `merge_nfip_fma' == 1 {
     do "`code'/build/merge_nfip_fma.do" "`data'"
 }
-if `complete' == 1 {
-    do "`code'/build/complete.do" "`data'" "`states'"
-}
 
 // iv) Build (Anna)
 if `merge_datasets' == 1 {
@@ -171,8 +177,10 @@ if `merge_datasets' == 1 {
             --state "`state'" ///
             --data "`data'" ///
             --python "`python'" ///
-            --memory "24GB" ///
-            --threads 4
+            --memory "`matching_memory'" ///
+            --threads 4 ///
+            --from "`matching_from'" ///
+            --tmp "`matching_tmp'/`state'" 
     }
 }
 if `parquet_dta' == 1 {
@@ -195,6 +203,9 @@ if `attom_value_dta' == 1 {
             --output "`data'/build/attom_value_wide/`st'_attom_value_wide.dta" ///
             --where "attomid IN (SELECT assigned_attomid FROM read_parquet('`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet') WHERE assigned_attomid IS NOT NULL)"
     }
+}
+if `complete' == 1 {
+    do "`code'/build/complete.do" "`data'" "`states'"
 }
 
 // v) Descriptives

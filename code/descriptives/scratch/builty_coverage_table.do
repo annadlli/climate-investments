@@ -1,18 +1,18 @@
 /******************************************************************************
 Author: Anna Li
 Date: 2026-09-07
-
+Edited: 2026-09-10
 Description: Builty permit coverage by state, one row per state, for the deck.
     Counties with a feed, counties clearing the 1-per-100-homes floor, the
     median feed rate, and the share of single-family homes in a covered county.
-
+Revision: states exclude NJ now
 ******************************************************************************/
 
 args data output
 
 * Set table options
-local abbrevs FL LA NJ TX
-local names `" "Florida" "Louisiana" "New Jersey" "Texas" "'
+local abbrevs FL LA TX // 09-10: NJ dropped for lack of Builty coverage
+local names `" "Florida" "Louisiana" "Texas" "'
 local stock_year 2020 // year to measure the covered share of homes, as most coverage then
 
 * -----------------------------------------------------------------------------

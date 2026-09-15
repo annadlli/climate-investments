@@ -19,6 +19,7 @@ rebuilt afterwards by joining ATTOM values on (attomid, year).
 Note: this is not cumulative. Cumulative was done only for diagnostics. 
 09-06: ATTOM block-group falls back to Builty info when ATTOM's own geocoding info fails
 09-06: add in also the new-construction/back-fill retrofit flags of builty
+09-12: add in also the project value and funding type of builty
 """
 
 from __future__ import annotations
@@ -81,6 +82,8 @@ ASSIGNMENT_COLUMNS = {
     "builty_retrofit": "integer", "builty_new_construction": "integer",
     "builty_geo_backfilled": "integer",
     "builty_built_at_permit": "integer",   # 09-07: permit year within a year of ATTOM year built
+    # 09-12: builty cost and funding source
+    "builty_project_value": "double", "builty_funding_type": "integer",
     "attom_value_year": "integer", "attom_value_lag": "integer",
     **{f"attom_{c}": "double" for c in VALUE_COLUMNS},
 }
@@ -230,6 +233,8 @@ def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
           cast(e.builty_retrofit AS integer) builty_retrofit,
           cast(e.builty_new_construction AS integer) builty_new_construction,
           cast(e.builty_built_at_permit AS integer) builty_built_at_permit,
+          cast(e.builty_project_value AS double) builty_project_value,
+          cast(e.builty_funding_type AS integer) builty_funding_type,
           coalesce(cast(e.coords_backfilled_builty AS integer),0) builty_geo_backfilled,
           -- pad community number to 6 digits to match NFIP
           CASE WHEN regexp_matches(trim(cast(e.nfip_community_id AS varchar)), '^[0-9]+(\\.0)?$')
@@ -333,6 +338,7 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
         "builty_retrofit=h.builty_retrofit", "builty_new_construction=h.builty_new_construction",
         "builty_geo_backfilled=h.builty_geo_backfilled",
         "builty_built_at_permit=h.builty_built_at_permit",
+        "builty_project_value=h.builty_project_value", "builty_funding_type=h.builty_funding_type",
     ]
     con.execute(f"UPDATE nfip n SET {','.join(assignments)} FROM tier_hits h WHERE n.property_id=h.property_id")
 

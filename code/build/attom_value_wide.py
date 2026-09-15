@@ -8,7 +8,11 @@ Reads the geocoded ATTOM panel (property x tax year) for each state and writes
 one row per ATTOMID with the chosen value measure in every year, deflated to
 2023 dollars
 
-Cleaning: values <= 0 are missing (ATTOM logs 0 where it holds no value)
+Cleaning: values <= 0 are missing (ATTOM logs 0 where it holds no value); so are
+values below --min-value (default $10,000 nominal: placeholder assessments of a few
+hundred dollars, issue #26) and above --max-value (default $100M).
+
+09-10: --min-value added to create a floor; the floor used to sit in summary_table.do. floor of 10k nominal (judgement)
 """
 
 from __future__ import annotations
@@ -37,6 +41,8 @@ def parse_args() -> argparse.Namespace:
                             "market_value_improvements", "assessed_value_improvements"])
     p.add_argument("--year-min", type=int, default=2000)
     p.add_argument("--year-max", type=int, default=2026)
+    p.add_argument("--min-value", type=float, default=1e4,   
+                   help="Values below this (nominal $) are set to missing.")
     p.add_argument("--max-value", type=float, default=1e8,
                    help="Values above this (nominal $) are set to missing.")
     p.add_argument("--geocoded-dir", default=None,
@@ -48,7 +54,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_state(con: duckdb.DuckDBPyConnection, state: str, source: Path, out_dir: Path,
-                measure: str, year_min: int, year_max: int, max_value: float) -> None:
+                measure: str, year_min: int, year_max: int, min_value: float,
+                max_value: float) -> None:
     """Build and export the wide ATTOM value panel for one state."""
     years = list(range(year_min, year_max + 1))
 
@@ -63,7 +70,7 @@ def build_state(con: duckdb.DuckDBPyConnection, state: str, source: Path, out_di
             FROM read_parquet({q(source)})
         )
         SELECT attomid, year, nominal,
-               CASE WHEN nominal > 0 AND nominal <= {max_value}
+               CASE WHEN nominal >= {min_value} AND nominal <= {max_value}
                     THEN nominal / c.cpi END AS real_value
         FROM source
         LEFT JOIN cpi c USING (year)
@@ -78,12 +85,13 @@ def build_state(con: duckdb.DuckDBPyConnection, state: str, source: Path, out_di
                sum((nominal IS NULL)::int) missing,
                sum((nominal = 0)::int) zero,
                sum((nominal < 0)::int) negative,
+               sum((nominal > 0 AND nominal < ?)::int) below_min, 
                sum((nominal > ?)::int) above_max,
                quantile_cont(real_value, 0.50) p50_real,
                quantile_cont(real_value, 0.99) p99_real,
                max(real_value) max_real
         FROM long
-    """, [max_value]).df()
+    """, [min_value, max_value]).df()
     by_year = con.execute("""
         SELECT year, count(*) property_years, sum((real_value IS NOT NULL)::int) with_value,
                quantile_cont(real_value, 0.5) p50_real
@@ -140,7 +148,7 @@ def main() -> None:
     for state in states:
         source = geocoded_dir / f"{state.lower()}_attom_geocoded.parquet"
         build_state(con, state, source, out_dir, args.measure, args.year_min, args.year_max,
-                    args.max_value)
+                    args.min_value, args.max_value)
     # Release the DuckDB connection after all exports finish.
     con.close()
 

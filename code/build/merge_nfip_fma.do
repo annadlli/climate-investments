@@ -1,10 +1,10 @@
 /******************************************************************************
 Authors: Vendela Norman
 Date: 2026-09-03
-
+Edited: 2026-09-12
 Description: Merges NFIP claims, multiple-loss status and FMA grants onto the
     NFIP policies panel.
-
+Revision: Added in ICC claims and hmgp_number of elevated properties
 ******************************************************************************/
 
 args data
@@ -26,7 +26,7 @@ merge m:1 originalconstructiondate censusblockgroupfips originalnbdate ///
 * Merge NFIP claims data 
 ren policy_year year_loss
 merge 1:1 originalconstructiondate censusblockgroupfips originalnbdate year_loss ///
-    using "`data'/clean/nfip_claims_panel.dta", keep(1 3) keepusing(claim_cb) nogen
+    using "`data'/clean/nfip_claims_panel.dta", keep(1 3) keepusing(claim_cb claim_icc) nogen
 ren year_loss policy_year
 
 * Merge in FMA grant data
@@ -34,14 +34,14 @@ ren year_loss policy_year
 // (clean/fma_zip.dta) only covers grants FEMA logged at the property level, so it is
 // left for later as a more granular option where available. Property-level FMA
 // data would require the FOIA requests to come through.
-merge m:1 countycode using "`data'/clean/fma_county.dta", keep(1 3) keepusing(fma_*) nogen
+merge m:1 countycode using "`data'/clean/fma_county.dta", keep(1 3) keepusing(fma_* hmgp_n_properties) nogen
 
 * -----------------------------------------------------------------------------
 * Section 2: Clean and save
 * -----------------------------------------------------------------------------
 
 * Set missings to 0   
-foreach var in claim_cb nfip_rl nfip_srl fma_n_properties fma_spend {
+foreach var in claim_cb claim_icc nfip_rl nfip_srl fma_n_properties fma_spend hmgp_n_properties { 
     replace `var' = 0 if mi(`var')
 }
 
@@ -59,12 +59,13 @@ drop originalconstructiondate originalnbdate censustract nfipratedcommunitynumbe
 label var cumulative_claims  "Cumulative claims paid, building + contents"
 label var rl                 "Repetitive-loss property"
 label var srl                "Severe-repetitive-loss property"    
+label var claim_icc          "Increased Cost of Compliance paid (2023 $)" 
 
 * Save
 sort state property_id policy_year
 order state property_id policy_year construction_year post_firm sfha primary_residence ///
     elevated risk_rating_2 rl srl premium policy_cost coverage_building claim ///
-    cumulative_claims 
+    cumulative_claims claim_icc 
 order zipcode censusblockgroupfips property_id_state, last
 compress 
 save "`data'/build/nfip_hma_panel.dta", replace

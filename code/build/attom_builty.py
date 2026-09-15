@@ -1,7 +1,7 @@
 """
 Authors: Anna Li
 Original Date: 2026-08-12
-Revised Date: 2026-08-16
+Revised Date: 2026-09-14
 
 Merges Builty elevation permits onto the ATTOM property file.
 
@@ -18,6 +18,8 @@ and carries builty_elevated / builty_elevation_year (saved to --out).
 Revised 2026-09-06: Builty is also geocoded to get zip code, so they can also enter the ATTOM-NFHL group tiers
  The retrofit / new-construction flags from
 clean_builty.do are carried through as builty_retrofit / builty_new_construction.
+Revised 2026-09-12: Carry from Builtyt he project value and funding type
+ 09-14: Added two more ways to match addresses to improve match rate
 """
 
 from __future__ import annotations
@@ -72,7 +74,36 @@ MATCH_TIERS = [
 ]
 
 # the key columns, as opposed to the ATTOM values we actually want to carry over
-KEY_COLUMNS = ("addr_clean", "addr_nosuffix", "addr_compact", "zip_clean", "attom_county_fips")
+KEY_COLUMNS = ("addr_clean", "addr_nosuffix", "addr_compact", "zip_clean", "attom_county_fips",
+               "loose_key", "jw_key")  
+
+GENERIC_FIRST_WORDS = {"ave", "st", "rd", "dr", "hwy", "highway", "county", "state", "la", "fm", "cr",
+                       "route", "rte", "old", "north", "south", "east", "west", "n", "s", "e", "w"}
+DIRECTION_RE = r"(?:n|s|e|w|ne|nw|se|sw)"
+STREET_TAIL_RE = r"\s+(?:apt|unit|ste|lot|bldg|building|parcel|ub clp|clp)\b.*$"
+
+
+def loose_key(addr: pd.Series) -> pd.Series:
+    # house number + first street word; ordinals stripped ("12th" -> "12"), leading
+    # direction skipped, and a generic first word ("ave", "hwy") takes the next word too
+    a = addr.fillna("").str.replace(r"\b(\d+)(?:st|nd|rd|th)\b", r"\1", regex=True)
+    parts = a.str.extract(rf"^(\d+[a-z]?)\s+(?:{DIRECTION_RE}\s+)?([a-z0-9]+)(?:\s+([a-z0-9]+))?")
+    second = parts[2].fillna("")
+    word = parts[1].where(~parts[1].isin(GENERIC_FIRST_WORDS) | (second == ""), parts[1] + " " + second)
+    key = parts[0] + "|" + word
+    return key.where(parts[0].notna() & parts[1].notna(), "")
+
+
+def street_direction(addr: pd.Series) -> pd.Series:
+    # the direction word right after the house number, if any
+    return addr.fillna("").str.extract(rf"^\d+[a-z]?\s+({DIRECTION_RE})\s")[0].fillna("")
+
+
+def street_string(addr: pd.Series) -> pd.Series:
+    # what the fuzzy rung compares: no house number, no unit/lot tail, no bare trailing number
+    s = addr.fillna("").str.replace(r"^\d+[a-z]?\s+", "", regex=True)
+    s = s.str.replace(STREET_TAIL_RE, "", regex=True)
+    return s.str.replace(r"\s+\d+\s*$", "", regex=True).str.strip()
 
 
 def quote_sql(value: str) -> str:
@@ -97,6 +128,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threads", default=4, type=int)
     parser.add_argument("--memory", default="32GB")
     parser.add_argument("--max-temp", default="200GB")
+    parser.add_argument("--exact-only", action="store_true",
+                        help="run the six exact tiers only (the pre-09-15 ladder)")
+    parser.add_argument("--jw-threshold", type=float, default=0.90)
+    parser.add_argument("--jw-margin", type=float, default=0.05)
     return parser.parse_args()
 
 
@@ -287,11 +322,16 @@ def attom_select_sql(schema: dict) -> str:
 
 
 def load_attom(con: duckdb.DuckDBPyConnection, attom_input: str, schema: dict,
-               permits: pd.DataFrame, state_fips: str) -> pd.DataFrame:
+               permits: pd.DataFrame, state_fips: str, loose: bool = False) -> pd.DataFrame:
     # ATTOM has tens of millions of rows and we only care about the handful of
     # addresses that appear in Builty, so push that filter down into the scan
-    con.register("permit_keys", permits[["addr_clean", "addr_nosuffix", "addr_compact"]].drop_duplicates())
+    keys = permits[["addr_clean", "addr_nosuffix", "addr_compact", "zip_clean"]].copy()
+    keys["house_number"] = keys["addr_clean"].str.extract(r"^(\d+[a-z]?)\s")[0].fillna("")
+    con.register("permit_keys", keys.drop_duplicates())
     address, clean = schema["address"], addr_clean_sql(schema["address"])
+    loose_clause = (f""" OR ({zip_clean_sql(schema["zip"])} IN (SELECT zip_clean FROM permit_keys WHERE zip_clean != '')
+                   AND regexp_extract({clean}, '^(\\d+[a-z]?)\\s', 1) IN (SELECT house_number FROM permit_keys WHERE house_number != ''))"""
+                    if loose else "")
 
     attom = con.execute(f"""
         SELECT {attom_select_sql(schema)},
@@ -305,7 +345,7 @@ def load_attom(con: duckdb.DuckDBPyConnection, attom_input: str, schema: dict,
         WHERE "{address}" IS NOT NULL AND trim("{address}") != ''
           AND ({clean} IN (SELECT addr_clean FROM permit_keys)
                OR {addr_nosuffix_sql(clean)} IN (SELECT addr_nosuffix FROM permit_keys)
-               OR {addr_compact_sql(clean)} IN (SELECT addr_compact FROM permit_keys))
+               OR {addr_compact_sql(clean)} IN (SELECT addr_compact FROM permit_keys){loose_clause})
     """).df()
 
     attom = attom.drop(columns=[address, schema["county"]])
@@ -398,6 +438,10 @@ def collapse_to_properties(permits: pd.DataFrame) -> pd.DataFrame:
     # permit files simply lack them and the output carries nulls
     for column in ["RETROFIT", "NEW_CONSTRUCTION"]:
         permits[column] = pd.to_numeric(permits.get(column), errors="coerce")
+    #09-12: the declared project value and funding source
+    for column in ["PROJECT_VALUE", "FUNDING_TYPE"]:
+        permits[column] = pd.to_numeric(permits.get(column), errors="coerce")
+    permits.loc[permits["PROJECT_VALUE"] <= 0, "PROJECT_VALUE"] = np.nan
     for column in ["LONGITUDE_BUILTY", "LATITUDE_BUILTY"]:
         permits[column] = pd.to_numeric(permits.get(column), errors="coerce")
     permits["CENSUSBLOCKGROUPFIPS_BUILTY"] = permits.get(
@@ -420,6 +464,8 @@ def collapse_to_properties(permits: pd.DataFrame) -> pd.DataFrame:
         builty_retrofit=("RETROFIT", "max"),
         builty_new_construction=("NEW_CONSTRUCTION", "max"),
         builty_built_at_permit=("BUILT_AT_PERMIT", "max"),
+        builty_project_value=("PROJECT_VALUE", "max"),   
+        builty_funding_type=("FUNDING_TYPE", "max"),     
         builty_blockgroup=("CENSUSBLOCKGROUPFIPS_BUILTY", first_nonblank),
         builty_longitude=("LONGITUDE_BUILTY", "first"),
         builty_latitude=("LATITUDE_BUILTY", "first"),
@@ -501,6 +547,58 @@ def backfill_geography(result: pd.DataFrame, nfhl: str | None, state: str) -> pd
     return result
 
 
+def apply_loose_tiers(con: duckdb.DuckDBPyConnection, permits: pd.DataFrame, attom: pd.DataFrame,
+                      value_columns: list[str], jw_threshold: float, jw_margin: float, state: str) -> pd.DataFrame:
+    before = int((permits["attom_match_tier"] != "unmatched").sum())
+
+    # rung 7: loose key, unique in the ZIP; then undo pairs whose directions disagree
+    permits = apply_temporal_match(permits, attom, value_columns, ["loose_key", "zip_clean"],
+                                   ["loose_key", "zip_clean"], "loose_key", True)
+    permit_dir = street_direction(permits["addr_clean"])
+    attom_dir = permits["attom_dir"].fillna("").astype(str)
+    conflict = (permits["attom_match_tier"].eq("loose_key") & permit_dir.ne("") & attom_dir.ne("")
+                & (permit_dir != attom_dir))
+    permits.loc[conflict, value_columns + ["attom_value_asof"]] = pd.NA
+    permits.loc[conflict, "attom_match_tier"] = "unmatched"
+    n_loose = int(permits["attom_match_tier"].eq("loose_key").sum())
+
+    # rung 8: block on house number + ZIP, Jaro-Winkler on the street string; a prefix
+    # hit (ATTOM street starts the permit street) counts as 1
+    left = permits.loc[permits["attom_match_tier"].eq("unmatched"), ["permit_row_id", "addr_clean", "zip_clean"]].copy()
+    left["house_number"] = left["addr_clean"].str.extract(r"^(\d+[a-z]?)\s")[0]
+    left["street"] = street_string(left["addr_clean"])
+    left = left[left["house_number"].notna() & left["zip_clean"].ne("") & left["street"].str.len().ge(3)]
+    right = attom[["jw_key", "addr_clean", "zip_clean", "attom_street"]].drop_duplicates("jw_key").copy()
+    right["house_number"] = right["addr_clean"].str.extract(r"^(\d+[a-z]?)\s")[0]
+    right = right[right["house_number"].notna()]
+    con.register("jw_left", left[["permit_row_id", "house_number", "zip_clean", "street"]])
+    con.register("jw_right", right[["jw_key", "house_number", "zip_clean", "attom_street"]])
+    picks = con.execute(f"""
+        WITH cand AS (
+          SELECT l.permit_row_id, r.jw_key,
+                 CASE WHEN length(r.attom_street) >= 4 AND starts_with(l.street, r.attom_street) THEN 1.0
+                      ELSE jaro_winkler_similarity(l.street, r.attom_street) END score
+          FROM jw_left l JOIN jw_right r ON r.zip_clean = l.zip_clean AND r.house_number = l.house_number
+        ), ranked AS (
+          SELECT *, row_number() OVER (PARTITION BY permit_row_id ORDER BY score DESC, jw_key) rk FROM cand
+        ), runner AS (
+          SELECT permit_row_id, max(score) runner_up FROM ranked WHERE rk = 2 GROUP BY 1
+        )
+        SELECT b.permit_row_id, b.jw_key FROM ranked b LEFT JOIN runner u USING (permit_row_id)
+        WHERE b.rk = 1 AND b.score >= {jw_threshold} AND (u.runner_up IS NULL OR b.score - u.runner_up >= {jw_margin})
+    """).df()
+    con.unregister("jw_left")
+    con.unregister("jw_right")
+    chosen = permits["permit_row_id"].map(picks.set_index("permit_row_id")["jw_key"]) if len(picks) else pd.Series("", index=permits.index)
+    permits["jw_key"] = chosen.fillna("").astype(str)
+    permits = apply_temporal_match(permits, attom, value_columns, ["jw_key", "zip_clean"],
+                                   ["jw_key", "zip_clean"], "jaro_winkler", False)
+    n_jw = int(permits["attom_match_tier"].eq("jaro_winkler").sum())
+    print(f"{state}: loose rungs added {n_loose:,} (loose_key) + {n_jw:,} (jaro_winkler) "
+          f"to {before:,} exact matches")
+    return permits
+
+
 def main() -> None:
     args = parse_args()
     state = args.state.upper()
@@ -541,7 +639,16 @@ def main() -> None:
 
         # pull the matching ATTOM records and clean their addresses the same way
         schema, _ = attom_column_map(con, attom_input)
-        attom = load_attom(con, attom_input, schema, permits, state_fips.iloc[0])
+        loose = not args.exact_only  
+        attom = load_attom(con, attom_input, schema, permits, state_fips.iloc[0], loose=loose)
+
+        if loose:
+            for frame in (permits, attom):
+                frame["loose_key"] = loose_key(frame["addr_clean"])
+                frame["jw_key"] = ""
+            attom["attom_dir"] = street_direction(attom["addr_clean"])
+            attom["attom_street"] = street_string(attom["addr_clean"])
+            attom["jw_key"] = clean_id(attom["ATTOMID"])
 
         # start every permit off unmatched, with blank columns waiting to be filled
         value_columns = [c for c in attom.columns if c not in KEY_COLUMNS]
@@ -554,6 +661,8 @@ def main() -> None:
         for permit_keys, attom_keys, tier, require_unique in MATCH_TIERS:
             permits = apply_temporal_match(permits, attom, value_columns,
                                            permit_keys, attom_keys, tier, require_unique)
+        if loose:
+            permits = apply_loose_tiers(con, permits, attom, value_columns, args.jw_threshold, args.jw_margin, state)
 
         # where Builty had no zip but the matched ATTOM record does, borrow theirs
         attom_zip = permits["attom_zipcode"].fillna("").astype(str).str.extract(r"^(\d{5})", expand=False).fillna("")

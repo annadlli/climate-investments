@@ -237,7 +237,8 @@ export excel using "`output'/tables/empirical_facts.xlsx", ///
 * -----------------------------------------------------------------------------
 
 * Note: project_value is unreported rather than zero where Builty has no cost
-use project_value using "`data'/clean/builty_elevations.dta", clear
+use state project_value using "`data'/clean/builty_elevations.dta", clear
+keep if inlist(state, "FL", "LA", "TX") // Claude change 09-14: key states only; the clean file still carries NJ
 keep if project_value > 0 & !mi(project_value)
 gen cost = project_value / 1000
 
@@ -310,6 +311,7 @@ export excel using "`output'/tables/empirical_facts.xlsx", ///
 
 * Note: clean_builty.do keeps elevated new construction since 09-06 (new_construction = 1)
 use state retrofit new_construction using "`data'/clean/builty_elevations.dta", clear
+keep if inlist(state, "FL", "LA", "TX") // Claude change 09-14: key states only
 gen one = 1
 collapse (sum) properties = one retrofits = retrofit new_builds = new_construction, by(state)
 gen share_new = 100 * new_builds / properties
@@ -343,6 +345,7 @@ export excel using "`output'/tables/empirical_facts.xlsx", ///
 * Builty: reported project value on retrofit permits; unreported rather than zero
 // Note: LA permits carry no project value at all
 use state retrofit project_value using "`data'/clean/builty_elevations.dta", clear
+keep if inlist(state, "FL", "LA", "TX") // Claude change 09-14: key states only
 keep if retrofit == 1 & project_value > 0 & !mi(project_value)
 gen source = 1
 rename project_value cost
@@ -350,12 +353,13 @@ tempfile builty_cost
 save `builty_cost'
 
 * FMA: federal share obligated per property in the project (2023 $)
-use state fma_spend n_properties using "`data'/clean/fma_elevation.dta", clear
+use state programarea fma_spend n_properties using "`data'/clean/fma_elevation.dta", clear
+keep if inlist(programarea, "FMA", "SRL") // Claude change 09-14: clean_fma keeps every HMA program since 09-08; this row is FMA
 replace state = "FL" if state == "Florida"
 replace state = "LA" if state == "Louisiana"
 replace state = "NJ" if state == "New Jersey"
 replace state = "TX" if state == "Texas"
-keep if inlist(state, "FL", "LA", "NJ", "TX") & fma_spend > 0 & n_properties > 0
+keep if inlist(state, "FL", "LA", "TX") & fma_spend > 0 & n_properties > 0 
 gen cost = fma_spend / n_properties
 gen source = 2
 append using `builty_cost'
@@ -380,7 +384,7 @@ twoway (histogram ln_cost if source == 1, percent width(0.25) color("`orange'%60
     xtitle("Cost per property, 2023 dollars (log scale)") ytitle("Percent") ///
     xlabel(`=ln(10000)' "10k" `=ln(30000)' "30k" `=ln(100000)' "100k" ///
            `=ln(300000)' "300k" `=ln(1000000)' "1m") ///
-    note("Medians: Builty \$`=string(`med_builty' / 1000, "%9.0f")'k, FMA \$`=string(`med_fma' / 1000, "%9.0f")'k; FL LA NJ TX", ///
+    note("Medians: Builty \$`=string(`med_builty' / 1000, "%9.0f")'k, FMA \$`=string(`med_fma' / 1000, "%9.0f")'k; FL LA TX", ///
         pos(7) size(vsmall) color(gs7))
 graph save  "`output'/figures/figure_5_mitigation_cost.gph", replace
 graph export "`output'/figures/figure_5_mitigation_cost.png", width(2000) replace

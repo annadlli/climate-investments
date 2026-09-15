@@ -1,9 +1,9 @@
 /******************************************************************************
 Authors: Vendela Norman
 Date: 2026-08-27
-
+Edited: 2026-09-12
 Description: Cleans the FEMA NFIP redacted claims data. 
-
+Revision: added in ICC claims to keep  -> pays out when there is activity, which can be elevation, relocation, or demolition after sig damage.
 Source: fema.gov/openfema-data-page/fima-nfip-redacted-claims-v2
 
 ******************************************************************************/
@@ -38,14 +38,14 @@ keep property_id originalconstructiondate censusblockgroupfips originalnbdate st
      dateofloss yearofloss amountpaidonbuildingclaim amountpaidoncontentsclaim buildingpropertyvalue ///
      ratedfloodzone numberoffloors totalbuildinginsurancecoverage totalcontentsinsurancecoverage ///
      buildingdamageamount buildingdeductiblecode netbuildingpaymentamount netcontentspaymentamount ///
-     buildingreplacementcost
+     buildingreplacementcost neticcpaymentamount 
 
  * Rename
 ren (reportedzipcode yearofloss netbuildingpaymentamount netcontentspaymentamount ///
      totalbuildinginsurancecoverage totalcontentsinsurancecoverage buildingpropertyvalue ///
-     ratedfloodzone) ///
+     ratedfloodzone neticcpaymentamount) /// 
     (zipcode year_loss claim_building claim_contents coverage_building coverage_contents ///
-     property_val_nfip flood_zone)
+     property_val_nfip flood_zone claim_icc)
 
 * Destring 
 ds state zipcode censusblockgroupfips dateofloss originalconstructiondate originalnbdate ///
@@ -76,12 +76,12 @@ replace claim_contents = amountpaidoncontentsclaim if mi(claim_contents) | claim
 drop amountpaidonbuildingclaim amountpaidoncontentsclaim
 
 * Drop claims above the cap 
-// TODO:
-stop 
-drop if claim_cb > 250000 // NFIP claims cap
+// TODO: decide the cap rule. 
+// stop 
+// drop if claim_cb > 250000 // NFIP claims cap
 
 * Deflate nominal variables
-foreach var in claim_building claim_contents property_val_nfip {
+foreach var in claim_building claim_contents claim_icc property_val_nfip { 
     replace `var' = `var' / cpi if !mi(`var') & !mi(cpi)
 }
 drop cpi
@@ -99,7 +99,7 @@ duplicates drop
 // Note: One raw record is one payment transaction, so dollar amounts are summed
 // within property-year
 bys property_id year_loss: gen n_records = _N // number of transactions per property-year
-foreach var in claim_building claim_contents claim_cb {
+foreach var in claim_building claim_contents claim_cb claim_icc { 
     bys property_id year_loss: egen _t = total(`var')
     replace `var' = _t
     drop _t
@@ -120,6 +120,7 @@ label var year_loss                "Year of loss"
 label var claim_building           "Net amount paid on building claim (2023 $)"
 label var claim_contents           "Net amount paid on contents claim (2023 $)"
 label var claim_cb                 "Total net amount paid, building + contents (2023 $)"
+label var claim_icc                "Net Increased Cost of Compliance payment (2023 $)" 
 label var property_val_nfip        "Building property value (NFIP, 2023 $)"
 label var coverage_building        "Total building insurance coverage"
 label var coverage_contents        "Total contents insurance coverage"

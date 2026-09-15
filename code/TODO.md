@@ -1,6 +1,6 @@
 # TODO — climate-investments
 
-_Rewritten 2026-09-02, updated 2026-09-03 and 2026-09-07 (Anna) against the live `master.do`. Pre-September history (torch_work cleanup,
+_Rewritten 2026-09-02, updated 2026-09-03, 2026-09-07 and 2026-09-10 (Anna) against the live `master.do`. Pre-September history (torch_work cleanup,
 build/ consolidation, NFIP/FMA/CPI build notes) is in git: `git show 10dffe3:code/TODO.md`.
 Follow `CONVENTIONS.md` as you work._
 
@@ -36,6 +36,19 @@ Pipeline state on disk (all rebuilt 2026-09-03 unless noted):
   coordinates, block group and NFHL zone for Builty-elevated houses ATTOM could not place;
   `nfip_attom.py` coalesces the block group and carries `builty_retrofit`, `builty_new_construction`,
   `builty_geo_backfilled`; `complete.do` keeps those plus `match_tier_number`.
+- [x] Claude change 09-10: state sample settled (issue #16, Vendela 09-08): `states` is FL LA TX; NJ dropped for lack of
+  Builty coverage. The 09-08 six-state widening (NC NY) is reverted; NC and NY link files on disk
+  are the stale Aug 17 versions and are not used.
+- [x] Claude change 09-10 (done 09-14, redone 09-15 with the loose rungs): rerun for the 09-10 pipeline changes (issues #23-#26), in order:
+  `clean_nfip_claims` (adds `claim_icc`; note the `stop` Vendela left before the claims cap) →
+  `merge_nfip_fma` (carries `claim_icc`, `hmgp_n_properties`) ← `prep_fma` (HMGP county counts);
+  on the cluster, matching from step 3 for FL LA TX (`FROM_STEP=3 sbatch --array=3,5,17
+  code/slurm/submit_property_matching.sh`) so `builty_project_value` / `builty_funding_type` reach
+  the link files, then copy `nfip_attom_property/*.parquet` back → `parquet_dta` → `attom_value_wide`
+  (new $10k floor) → `attom_value_dta` → `complete` (now writes `analysis.dta` and
+  `analysis_with_diagnostics.dta`) → `summary_stats`, `es_prices_mitigation`. `complete.do` fails on
+  the current link files because they lack the two new Builty columns. LA steps 3-4 were run locally
+  on 09-10 as a test of the Python changes (scratch output, not copied to Dropbox).
 
 ## 1. Canonical path — settled 2026-09-03
 
@@ -80,15 +93,72 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
 - [x] NFIP premiums — done in `clean_nfip_policies.do`: premiums ≤ 0 set to missing, premium /
       policy_cost / coverage_building deflated to 2023 $ at policy-year level. Still open: policy years
       running to 2027 (date parsing) — check `policy_year` range.
-- [ ] Re-do HMA cleaning to keep all elevation programs (HMGP, BRIC, FMA, …) with a program flag;
-      restrict to FMA downstream.
+- [x] Re-do HMA cleaning to keep all elevation programs (HMGP, BRIC, FMA, …) with a program flag;
+      restrict to FMA downstream -- done 09-08 (`clean_fma.do` keeps every program, `programarea` is
+      the flag; `prep_fma.do` restricts to FMA/SRL for the ZIP and county files). 09-10: the county
+      file also carries `hmgp_n_properties`, merged onto the panel for the HMA probability below.
+- [x] Claude change 09-10: harmonized elevation variable (issue #25) -- built in `complete.do` Section 3, 09-10:
+      `elevation` = NFIP flag flips 0 -> 1 or an ICC payment (`claim_icc`, new in
+      `clean_nfip_claims.do`) or a Builty retrofit permit; `elevation_year`, `elevation_source`
+      (0 none / 1 NFIP / 2 Builty / 3 both), `elevation_funded` (grant named in the permit text,
+      Builty elevations only); `hma_p_fma`, `hma_p_hmgp` = grant-elevated properties per NFIP-insured
+      property in the county (soft HMA signal until the FOIA property lists arrive). On the LA 10%
+      extract: 97 Builty-only, 12 NFIP-only, 0 both -- the sources barely overlap, worth a slide.
+      Open: the ICC signal is untested until the claims rerun; whether to treat `elevated == 1` at
+      first observation (never flips) as a pre-sample elevation.
+- [x] Claude change 09-10: Builty elevation cost on the panel (issue #24) -- `builty_project_value` (2023 $) and
+      `builty_funding_type` ride from `clean_builty` through `attom_builty.py` → `nfip_attom.py` →
+      `complete.do`; land with the step 3-4 rerun. Only FL and TX permits report a value (1,375 and
+      282 of the retrofit permits); LA reports none.
+- [x] Claude change 09-10: `analysis.dta` declutter (issue #23) -- `complete.do` now saves `analysis_with_diagnostics.dta`
+      (everything) and then drops `builty_new_construction`, `match_tier_number`,
+      `builty_geo_backfilled`, `builty_per_100`, `builty_funding_type`, `n_nfip_county`,
+      `attom_market_value_total`, `attom_value_year` and the source-specific elevation flags before
+      saving `analysis.dta`. `builty_covered_strict` stays because `es_prices_mitigation.do` uses it.
+- [ ] Claude change 09-10: LA construction year (issue #26): 59% of LA single-family ATTOM properties (783k of 1.33M)
+      have no year built (TX 4.5%, FL 0.3%); NFIP properties all have one. The ladder already uses
+      the year where both sides have it and falls to tier 15 (block group x zone, no year) only for
+      leftovers: LA lands 276k of 704k matches and 1,081 of 1,218 Builty retrofits in tier 15.
+      Proposal: move the no-year block-group x zone tier ahead of tiers 11-14 (the no-flood-zone
+      tiers), so a same-block-group, same-zone match beats a county x year match where the ATTOM
+      year is missing. Changes matches in every state; decide before the next full rerun.
+      Claude change 09-13: `build/alternates/nfip_attom_la_noyear.py` runs the parish check and the
+      reordered ladder for LA only, to a separate file, and compares it with the baseline. Test
+      script, run by hand (see its docstring); not in `master.do` unless it becomes part of the
+      final product. Result: the reorder does not help. Jefferson
+      Parish (263k NFIP properties, 758 of 1,300 Builty retrofits) has no ATTOM year built at all,
+      so nothing there can be displaced; the reorder moves 85k of 1.24M assignments and puts one more
+      retrofit on the panel (1,218 -> 1,219). Leave the ladder as is. The LA problem is ATTOM's
+      year coverage, not the match order; write-up in Dropbox `Flooding/Notes/la_year_built_2026-09-13.md`.
+- [ ] Claude change 09-14: Builty → ATTOM address match, two looser rungs tested in
+      `build/alternates/attom_builty_fuzzy.py` (test script, run by hand; review listings in
+      `tmp/fuzzy/`). Rung 7, house number + first street word + ZIP, unique in the ZIP: LA 85.4 →
+      92.8%, FL 73.4 → 83.8% (Aug 17 permit file), TX 90.9 → 94.5%. Rung 8, Jaro-Winkler on the
+      street string blocked on house number + ZIP: at most one point more. Two wrong-street pairs
+      in 433 ("1001 ave e" → "avenue k"): when the first street word is a generic (ave, st, hwy,
+      highway, county, la, fm) the key should take the next word too. Built into
+      `attom_builty.py` as `--loose-tiers` (off by default), with that fix and a direction check;
+      `run_property_matching.sh --loose` / `LOOSE=1 sbatch ...` write `_loose` copies of the step
+      3-4 files, and `master.do`'s `matching_loose` switch carries the `_loose` suffix through
+      `parquet_dta`, `attom_value_dta` and `complete.do` (writes `analysis_loose.dta`), so the
+      production files are never overwritten. Cluster run 09-14, all three states: permits matched
+      FL 75 → 86%, LA 85 → 92%, TX 90 → 95%; retrofit houses on the NFIP panel 3,361 → 3,679.
+      Claude change 09-15: **adopted as production** (Anna). The loose rungs are the default in
+      `attom_builty.py` (`--exact-only` runs the old ladder); the `--loose` / `LOOSE=1` options,
+      the `matching_loose` switch and the `_loose` suffix are retired; the `_loose` link, value
+      and panel files were renamed over the production names. The exact-tier link parquets still
+      exist on the cluster if ever needed. Every recovered house carries `loose_key` or
+      `jaro_winkler` in `builty_attom_match_tier` (diagnostics file), so exact-only results are
+      one filter away.
+- [ ] Claude change 09-10: Builty → ATTOM → NFIP loss (issue #26 deck note): where the drop happens and why is written
+      up in Dropbox `Flooding/Notes/deck_notes_2026-09-10.md`; add the tab to the deck.
 - [ ] Keep unfunded/denied/withdrawn applications with a `funded` flag instead of dropping them,
       so self-financed elevations can be measured (Builty elevation with no grant match). Flag
       local recovery programs (e.g. NYC Build It Back, `funding_type == 5` in `clean_builty.do`)
       before calling an elevation self-financed.
 - [x] Builty → ATTOM → NFIP frequency loss (Anna; diagnosed 2026-09-03, fixed 2026-09-06). Of 9,853
       Builty elevations, 7,089 matched an ATTOM address and 5,576 reached an NFIP property.
-      (a) NYC address normalization: dropped, New York left the sample with the four-state default.
+      (a) NYC address normalization: dropped 09-07 when NY left the sample (NY stays out, 09-10).
       (b) Done: `geocode_builty.py` geocodes every permit (4,922 of 5,945 get a block group);
           `attom_builty.py` backfills coordinates, block group and NFHL zone (`--nfhl`) for matched
           houses ATTOM could not place; `nfip_attom.py` coalesces the block-group key so they enter
@@ -112,6 +182,8 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
 - [x] Deflate ATTOM property values -- done 2026-09-06 as a wide file: `attom_value_wide.py` writes
       `build/attom_value_wide/{st}_attom_value_wide.parquet`, one row per ATTOM property, market value
       by tax year in 2023 $, zeros and values above $100M set to missing; `attom_value_dta` converts the
-      NFIP-linked subset to Stata after the matching. Still open: merge it onto the panel in
-      `complete.do` and reshape long, and decide what to do with the 23% (LA) of property-years ATTOM
-      logs as exactly zero. `attom_market_value_total` on the panel is still nominal until then.
+      NFIP-linked subset to Stata after the matching. Merged onto the panel as `attom_value_2023`
+      in `complete.do` (09-07). 09-10 (issue #26): values below $10,000 nominal are also set to
+      missing upstream (`--min-value`), replacing the ad hoc `>= 10000` screen that sat in
+      `summary_table.do`; the nominal `attom_market_value_total` is dropped from `analysis.dta`.
+      Still open: what the 23% (LA) of property-years logged as exactly zero mean.

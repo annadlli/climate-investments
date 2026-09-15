@@ -19,6 +19,8 @@ TMP=""
 NFHL_ROOT=""
 FORCE=0
 FROM=""   # empty = never force; --from N reruns steps N.. even where outputs exist
+# Claude change 09-15: the loose address rungs are the standard step-3 ladder now; the 09-14
+# --loose option and its _loose file suffix are gone
 
 usage() {
     cat >&2 <<'USAGE'
@@ -184,6 +186,7 @@ if step_needed "3/4" "${BUILTY}"; then
         --attom "${RAW_ATTOM}" --attom-nfhl "${NFHL}" --nfhl "${NFHL_ROOT}" \
         --out "${BUILTY}" --permits-out "${PERMITS_OUT}" \
         --tmp "${TMP}/builty" --memory "${MEMORY}" --threads "${THREADS}"
+        # Claude change 09-15: attom_builty.py runs the loose rungs by default (--exact-only to compare)
 fi
 
 # -----------------------------------------------------------------------------

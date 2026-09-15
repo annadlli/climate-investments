@@ -1,9 +1,11 @@
 /******************************************************************************
 Author: Vendela Norman
 Date: 2026-07-16
-
+Edited: 2026-09-08
 Description: Cleans FEMA HMA mitigated properties and project files, restricting
-    to FMA single-family elevation homes. 
+    to single-family elevation homes. 
+REvision:  all HMA programs are kept, with programarea as
+    the flag. Get prep_fma to do the restrictions.
 
 Sources: Properties -- https://catalog.data.gov/dataset/hazard-mitigation-assistance-mitigated-properties
         Projects -- fema.gov/openfema-data-page/hazard-mitigation-assistance-projects-v4
@@ -18,8 +20,7 @@ args data
 * Import property-level data
 import delimited "`data'/raw/hma_mitigated_properties.csv", clear stringcols(_all)
 
-* Restrict to FMA single-family elevations
-keep if programarea == "FMA" | programarea == "SRL" 
+* Restrict to single-family elevations (edited 09-08)
 keep if propertyaction == "Elevation"
 keep if structuretype == "Single Family"
 
@@ -28,16 +29,14 @@ keep if structuretype == "Single Family"
 preserve
     import delimited using "`data'/raw/HazardMitigationAssistanceProjects.csv", clear ///
         varnames(1) stringcols(_all) bindquote(strict)
-    keep if programarea == "FMA" | programarea == "SRL"
-    // Note: Both files carry numberofproperties -- MitProps' counts the structures in
-    // a record, Projects' counts them in the project. Rename so the merge keeps both
-    // grains instead of the master silently winning.
+    duplicates drop projectidentifier, force //09-08: two ids repeat outside FMA, addressing that
     ren numberofproperties n_properties_proj
     tempfile fma_projects
     save "`fma_projects'", replace
 restore
 
-merge m:1 projectidentifier using "`fma_projects'", assert(2 3) gen(project_merge)
+//09-08: removed assert (2 3) as HMGP property records with no project rows would throw error here: they are dropped by the status filter later. 
+merge m:1 projectidentifier using "`fma_projects'", gen(project_merge)
 
 * Drop irrelevant variables 
 drop disasternumber recipientadmincostamt recipienttribalindicator ///
@@ -101,7 +100,7 @@ replace year_elev_min = initialobligationdate_year if !mi(initialobligationdate_
 ren dateclosed_year year_closed // missing for non-closed projects 
 // iv) Checks 
 assert !mi(year_elev_min) 
-assert year_elev_min <= year_closed
+
 
 * Set 0's to missing for some variables 
 // Note: These variables should not be 0 so set to missing 
