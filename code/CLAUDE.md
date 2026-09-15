@@ -20,7 +20,8 @@ flood risk. Stata (`.do`) + Python (`.py`, `.ipynb`). Econ PhD work; collaborato
 ATTOM and Builty cover all 20 too (property links for all 20 as of Aug 31). The active pipeline is one
 route (settled 2026-09-03; `compile2.do` deleted, `final_data.do` archived): `clean_nfip_policies` →
 `prep_nfip_policies` (panel + first-policy-year snapshot) → `merge_nfip_fma` (claims, multiple-loss,
-county FMA) → `complete` (Builty coverage restriction + ATTOM/Builty property links).
+county FMA) → `complete` (Builty coverage restriction + ATTOM/Builty property links). The ATTOM side reaches Stata as
+two files from `attom_stata.py`, each merged once in `complete.do` (Claude change 09-15).
 
 ## Code and data are decoupled
 
@@ -56,8 +57,8 @@ clean/clean_nfip_multiple_loss.do -> clean/nfip_multiple_loss.dta
 build/prep_fma.do                 -> clean/fma_zip.dta + clean/fma_county.dta
 build/prep_nfip_policies.do       -> clean/nfip_policies_panel.dta + clean/nfip_policies_property.dta  (panel; first-policy-year snapshot = only NFIP input to the matcher)
 build/merge_nfip_fma.do           -> build/nfip_hma_panel.dta             (NFIP property-year panel + claims, multiple-loss, FMA)
-slurm/run_property_matching.sh    -> build/nfip_attom_pipeline_v2/...     (ATTOM geocode/NFHL/Builty/property matching jobs)
-build/parquet_dta.py              -> build/nfip_attom_property/{st}_nfip_attom_property.dta
+slurm/run_property_matching.sh    -> build/nfip_attom_pipeline_v2/...     (ATTOM geocode/NFHL/Builty/property matching jobs; after step 1 every step reads the geocoded panel, the one ATTOM file per state)
+build/attom_stata.py              -> build/attom_links.dta + build/attom_value.dta  (one link file: NFIP property -> ATTOM ID, match tier, Builty flags; one long value file: assigned ATTOM ID x year, 2023 $; Claude change 09-15)
 build/complete.do                 -> analysis/analysis.dta + analysis/analysis_with_diagnostics.dta  (property-year analysis set: panel + ATTOM/Builty links + harmonized elevation; the second file keeps the match/coverage diagnostics; Claude change 09-10)
 descriptives/summary_table.do     -> ../output/tables/summary_table.{dta,xlsx}  (summary_stats switch)
 build/alternates/attom_value_cells.py -> build/{state}_attom_value_{zip,county}_{year,decade}.dta

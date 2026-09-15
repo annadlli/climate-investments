@@ -12,30 +12,20 @@ Description: Prepares the final analysis dataset: restricts the NFIP-FMA panel t
     coverage diagnostics (issue #23).
 
 Revisions: Keep Builty cost and funding columns, attempt to harmonize elevation variable, and save diagnostics as separate, add floor and ceiling to Builty cost
+09-15 (Claude change): the ATTOM side is two files from attom_stata.py, each merged once:
+    build/attom_links.dta (one row per NFIP property, all sample states) replaces the
+    per-state link appends; build/attom_value.dta (assigned ATTOM ID x year, long)
+    replaces the per-state wide files and the 27 one-year merges. The value merge
+    runs after the sample restriction, so the master is as small as it gets.
 ******************************************************************************/
 
 args data states
 
 * -----------------------------------------------------------------------------
-* Section 1: Prepare ATTOM/Builty property links
+* Section 1: Merge datasets
 * -----------------------------------------------------------------------------
-
-* Append the state link files
-clear
-foreach st of local states {
-    local stl = strlower("`st'")
-    append using "`data'/build/nfip_attom_property/`stl'_nfip_attom_property.dta", ///
-        keep(state property_id_state assigned_attomid builty_elevated builty_elevation_year ///
-             builty_retrofit builty_project_value builty_funding_type ///
-             match_tier_number builty_new_construction builty_geo_backfilled)
-}
-isid state property_id_state
-tempfile links
-save `links'
-
-* -----------------------------------------------------------------------------
-* Section 2: Merge datasets
-* -----------------------------------------------------------------------------
+// Claude change 09-15: the link append that was Section 1 is gone; attom_stata.py
+// writes the one link file merged below, so the sections are renumbered
 
 * Import NFIP-FMA panel
 use "`data'/build/nfip_hma_panel.dta", clear
@@ -55,32 +45,14 @@ merge m:1 countycode year using "`data'/clean/builty_coverage_county.dta", keep(
 ren year policy_year
 
 * Merge ATTOM/Builty property links
-merge m:1 state property_id_state using `links', keep(1 3) nogen
-gen attom_matched = assigned_attomid != ""
-
-* Merge the ATTOM value for the policy year (2023)
-preserve
-    clear
-    foreach st of local states {
-        local stl = strlower("`st'")
-        append using "`data'/build/attom_value_wide/`stl'_attom_value_wide.dta", keep(attomid value_*)
-    }
-    isid attomid
-    rename attomid assigned_attomid
-    tempfile values
-    save `values'
-restore
-// 09-13: one year at a time loop to release memory pressure so runnable locally
-gen attom_value_2023 = .
-forvalues y = 2000/2026 {
-    merge m:1 assigned_attomid using `values', keep(1 3) keepusing(value_`y') nogen
-    replace attom_value_2023 = value_`y' if policy_year == `y'
-    drop value_`y'
-}
-compress
+// Claude change 09-15: one link file for all sample states (one row per NFIP property,
+// assigned ATTOM ID as an integer, Builty flags and match tier); keep(1 3) drops
+// states the panel does not carry
+merge m:1 state property_id_state using "`data'/build/attom_links.dta", keep(1 3) nogen
+gen attom_matched = !mi(assigned_attomid)
 
 * -----------------------------------------------------------------------------
-* Section 3: Harmonized elevation status (09-12)
+* Section 2: Harmonized elevation status (09-12)
 * -----------------------------------------------------------------------------
 * Within NFIP, flag first year when elevation changes from 0 to 1
 sort property_id policy_year
@@ -125,7 +97,7 @@ gen hma_p_hmgp = min(hmgp_n_properties / n_nfip_county, 1)
 drop _flip _icc_year _tag
 
 * -----------------------------------------------------------------------------
-* Section 4: Apply sample restrictions
+* Section 3: Apply sample restrictions, then the ATTOM value
 * -----------------------------------------------------------------------------
 
 * Restrict to county-years w/ builty coverage
@@ -134,13 +106,20 @@ drop _flip _icc_year _tag
 keep if builty_merge == 3
 
 * Drop extraneous variables
-drop builty_merge countycode assigned_attomid property_id_state
+drop builty_merge countycode property_id_state
 
 * Drop years w/ missing data
 drop if policy_year > 2025
 
+* Merge the ATTOM value for the policy year (2023 $)
+// Claude change 09-15: one long file, assigned ATTOM ID x year, merged once after the
+// restrictions above (the value plays no part in them); replaces the 27 one-year
+// merges of the wide per-state files that ran on the full panel
+merge m:1 assigned_attomid policy_year using "`data'/build/attom_value.dta", keep(1 3) nogen
+drop assigned_attomid
+
 * -----------------------------------------------------------------------------
-* Section 5: Label and save
+* Section 4: Label and save
 * -----------------------------------------------------------------------------
 * Label
 label var attom_matched            "NFIP property has an assigned ATTOM property"

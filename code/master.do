@@ -83,14 +83,12 @@ local merge_datasets                    = 0 // runs all of the torch scripts exc
     // local attom_nfhl                     = 0 // merge Attom w/ NFHL flood zone data
     // local attom_builty                   = 0 // merge Attom w/ Builty 
     // local nfip_attom                     = 0 // merge ATTOM with NFIP using the matching tiers
-local parquet_dta                       = 0 // convert parquet file to Stata
-local attom_value_wide                  = 0 // ATTOM value by tax year, one row per property, 2023 $ (added 2026-09-06)
-local attom_value_dta                   = 0 // Stata copy of the value file, restricted to ATTOM properties linked to NFIP (after parquet_dta)
-local complete                          = 1 // compile final analysis dataset 
+local attom_stata                       = 0 // ATTOM link file + long value file for complete.do (Claude change 09-15: replaces parquet_dta, attom_value_wide, attom_value_dta)
+local complete                          = 0 // compile final analysis dataset 
 
 // v) Descriptives
-local summary_stats                     = 1 // create summary statistics table
-local histograms                        = 1 // histograms of cumulative claims and elevation project cost
+local summary_stats                     = 0 // create summary statistics table
+local histograms                        = 0 // histograms of cumulative claims and elevation project cost
 local elevations_by_state               = 0 // count elevation retrofits by state in Builty and HMA (deck tab)
 local builty_coverage_table             = 0 // Builty permit coverage by state for the deck 
 local empirical_facts                   = 0 // create empirical-facts figures and tables
@@ -183,26 +181,11 @@ if `merge_datasets' == 1 {
             --tmp "`matching_tmp'/`state'" 
     }
 }
-if `parquet_dta' == 1 {
-    foreach state of local states {
-        local st = lower("`state'")
-        shell `python' "`code'/build/parquet_dta.py" ///
-            --input "`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet" ///
-            --output "`data'/build/nfip_attom_property/`st'_nfip_attom_property.dta"
-    }
-}
-if `attom_value_wide' == 1 {
-    shell `python' "`code'/build/attom_value_wide.py" --data "`data'" --states "`states'"
-}
-if `attom_value_dta' == 1 {
-    // 09-07: run after parquet_dta. Keeps only ATTOM IDs that the matcher assigned to an NFIP property, so the .dta is sig smaller than state-wide parquet file
-    foreach state of local states {
-        local st = lower("`state'")
-        shell `python' "`code'/build/parquet_dta.py" ///
-            --input "`data'/build/attom_value_wide/`st'_attom_value_wide.parquet" ///
-            --output "`data'/build/attom_value_wide/`st'_attom_value_wide.dta" ///
-            --where "attomid IN (SELECT assigned_attomid FROM read_parquet('`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet') WHERE assigned_attomid IS NOT NULL)"
-    }
+if `attom_stata' == 1 {
+    // Claude change 09-15: one link file (NFIP property -> ATTOM ID, match tier, Builty flags) and
+    // one long value file (assigned ATTOM ID x year, 2023 $, panel years) from the matcher output
+    // and the geocoded panels; complete.do merges each once
+    shell `python' "`code'/build/attom_stata.py" --data "`data'" --states "`states'"
 }
 if `complete' == 1 {
     do "`code'/build/complete.do" "`data'" "`states'"
