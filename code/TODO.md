@@ -71,6 +71,33 @@ execution is a thin wrapper in `slurm/` around the same script, never separate l
       and the `elevated` / `elevation_retrofit` / `elevation_cost` rows of the summary table.
       `histograms.do` now also draws `claims_vs_elevation_cost.png` (cost against claims paid
       through the elevation year, 45-degree line); the two histograms keep a $1k display floor.
+- [x] SUPERSEDED (merge 09-15, Vendela's version kept): Anna's ATTOM side restructure (Anna: "one ATTOM file and merge"; the
+      per-state wide value files and the 27 one-year merges were swapping a 16 GB laptop).
+      `build/attom_stata.py` (one `attom_stata` switch in `master.do`, replaces `parquet_dta`,
+      `attom_value_wide`, `attom_value_dta`) writes `build/attom_links.dta` (7.1M NFIP properties,
+      all sample states: assigned ATTOM ID as an integer, match tier, Builty flags) and
+      `build/attom_value.dta` (assigned ATTOM ID x year, 2009-2025, market value in 2023 $,
+      ~79M rows / 0.8 GB). `complete.do` merges each once, the value after the sample
+      restriction. `complete.do` on the new files reproduces the 09-14 analysis set exactly
+      (same 29.2M rows, same matched / Builty counts; the value file equals the old wide
+      files on every assigned ID x year). Upstream, `nfip_attom.py` picks the value with a
+      filtered join instead of a per-property subquery (LA output identical, 0 rows differ),
+      and `run_property_matching.sh` step 3 now matches permits against the geocoded panel
+      instead of the raw extract, so the 40 GB FL/TX raw files are never read after step 1.
+      Cost, measured on LA against the raw input with today's permits: 2 of 1,549 permit
+      matches are lost (218 Plant Rd, Houma, exact; 8312 Lake Park Dr, Denham Springs,
+      Jaro-Winkler) because the panel keeps one address spelling per property-year
+      (`attom_geocode.py` takes the max) and the spelling that matched sits on another raw
+      row; one of the two properties is NFIP-linked, so one Builty flag leaves the LA links
+      at the next rerun. `builty_built_at_permit` becomes missing rather than 0 where ATTOM
+      has no year built (the flag is not on the panel). Everything else in the step 3
+      outputs is identical. Anna's call whether 0.1% is worth the raw dependency; to go
+      back, point step 3's `--attom` at `RAW_ATTOM` again. Takes effect on the cluster at
+      the next step 3-4 run; the production link parquets are unchanged.
+      `attom_value_wide.py` and `parquet_dta.py` are in `build/archive/`; the Dropbox folders
+      `build/attom_value_wide/` and `build/nfip_attom_property/*.dta` are no longer read.
+      `attom_stata.py` is in `build/archive/`; `parquet_dta.py` stays in `build/`; the `nfip_attom.py`
+      filtered join and the step-3 geocoded-panel read in `run_property_matching.sh` were kept.
 - Don't save `master.do` or a running do-file while a batch job launched from it is running: Stata
   reads do-files incrementally and picks up a shifted byte offset (killed a run again 09-15).
 - `complete.do` extract: the 10% draw to `analysis/extracts/500M_subsample.dta` is not seeded.

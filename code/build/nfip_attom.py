@@ -1,7 +1,7 @@
 """
 Authors: Anna Li
 Original Date: 2026-08-14
-Revised Date: 2026-09-06
+Revised Date: 2026-09-15
 
 Pairs each NFIP-insured property with one ATTOM property, so the insurance
 records pick up a property value and a Builty elevation flag.
@@ -20,6 +20,7 @@ Note: this is not cumulative. Cumulative was done only for diagnostics.
 09-06: ATTOM block-group falls back to Builty info when ATTOM's own geocoding info fails
 09-06: add in also the new-construction/back-fill retrofit flags of builty
 09-12: add in also the project value and funding type of builty
+09-15 (Claude change): value lookup is a filtered join, not a per-property subquery
 """
 
 from __future__ import annotations
@@ -353,22 +354,32 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
 def attach_values(con: duckdb.DuckDBPyConnection, attom: str) -> None:
     # value each property: latest ATTOM assessment at or before its matched
     # policy year. unmatched come back blank
+    # Claude change 09-15: was a correlated LATERAL subquery, one probe of the whole
+    # property x year panel per NFIP property. Now the panel is read once, cut to the
+    # assigned IDs, joined, and a window keeps the latest eligible year: same rows,
+    # but it streams under a small memory cap instead of holding the panel
     con.execute(f"""
         CREATE TABLE final AS
+        WITH v AS (
+          SELECT cast(attomid AS varchar) attomid, cast(year AS integer) value_year,
+                 {','.join(VALUE_COLUMNS)}
+          FROM read_parquet({q(attom)})
+          WHERE cast(year AS integer) BETWEEN 1980 AND 2035
+            AND cast(attomid AS varchar) IN (SELECT assigned_attomid FROM nfip
+                                             WHERE assigned_attomid IS NOT NULL)
+        ), pick AS (
+          SELECT n.property_id, v.value_year, {','.join('v.'+c for c in VALUE_COLUMNS)},
+                 row_number() OVER (PARTITION BY n.property_id ORDER BY v.value_year DESC) rk
+          FROM nfip n JOIN v ON v.attomid = n.assigned_attomid
+          WHERE v.value_year <= coalesce(n.builty_elevation_year, n.reference_year)
+        )
         SELECT n.* EXCLUDE(attom_value_year, attom_value_lag,
                            {','.join('attom_'+c for c in VALUE_COLUMNS)}),
                coalesce(n.builty_elevation_year, n.reference_year) value_reference_year,
-               v.value_year attom_value_year,
-               coalesce(n.builty_elevation_year, n.reference_year) - v.value_year attom_value_lag,
-               {','.join('v.'+c+' attom_'+c for c in VALUE_COLUMNS)}
-        FROM nfip n LEFT JOIN LATERAL (
-          SELECT cast(year AS integer) value_year, {','.join(VALUE_COLUMNS)}
-          FROM read_parquet({q(attom)}) v
-          WHERE cast(v.attomid AS varchar)=n.assigned_attomid
-            AND cast(v.year AS integer) BETWEEN 1980 AND 2035
-            AND cast(v.year AS integer)<=coalesce(n.builty_elevation_year, n.reference_year)
-          ORDER BY cast(v.year AS integer) DESC LIMIT 1
-        ) v ON true
+               p.value_year attom_value_year,
+               coalesce(n.builty_elevation_year, n.reference_year) - p.value_year attom_value_lag,
+               {','.join('p.'+c+' attom_'+c for c in VALUE_COLUMNS)}
+        FROM nfip n LEFT JOIN pick p ON p.property_id = n.property_id AND p.rk = 1
     """)
 
 

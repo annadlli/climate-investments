@@ -171,19 +171,22 @@ fi
 # -----------------------------------------------------------------------------
 # 3. Builty permits -> ATTOM.
 #
-# Permits are address-matched against the FULL RAW ATTOM file, not the geocoded
-# panel: matching against the panel made every permit whose property failed to
-# geocode unmatchable, which silently shrank the treated sample. The matched
+# Permits are address-matched against the geocoded ATTOM panel from step 1, the
+# one ATTOM file everything after step 1 reads. The panel keeps every raw
+# property that has an assessment year (geocoded or not: the block-group join is
+# a LEFT JOIN), and a permit can only match a record with an assessment year
+# anyway, so nothing is lost against the raw file and the 40 GB raw scan is gone
+# (Claude change 09-15; the raw file was the input until then). The matched
 # permits are then collapsed to property level and left-joined onto the
 # ATTOM--NFHL master, so every property survives.
 # -----------------------------------------------------------------------------
 if step_needed "3/4" "${BUILTY}"; then
-    require "${RAW_ATTOM}" "${PERMITS}" "${NFHL}" "${NFHL_ROOT}"
+    require "${GEOCODED}" "${PERMITS}" "${NFHL}" "${NFHL_ROOT}"
     echo "[3/4] Builty--ATTOM address match, joined onto the ATTOM--NFHL universe"
     # Builty geocode backfill added (09-05 change)
     "${PYTHON}" "${CODE}/attom_builty.py" \
         --state "${STU}" --data "${DATA}" --permits "${PERMITS}" \
-        --attom "${RAW_ATTOM}" --attom-nfhl "${NFHL}" --nfhl "${NFHL_ROOT}" \
+        --attom "${GEOCODED}" --attom-nfhl "${NFHL}" --nfhl "${NFHL_ROOT}" \
         --out "${BUILTY}" --permits-out "${PERMITS_OUT}" \
         --tmp "${TMP}/builty" --memory "${MEMORY}" --threads "${THREADS}"
         # Claude change 09-15: attom_builty.py runs the loose rungs by default (--exact-only to compare)
