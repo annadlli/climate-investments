@@ -53,13 +53,19 @@ Every `.do` opens with:
 ```stata
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: YYYY-MM-DD          
+Date: YYYY-MM-DD
 Description: ...
-Notes / Sources: ...
+Source: ...
 ******************************************************************************/
 ```
+- Exactly these four fields, in this order. `Source` is the data source (a URL or file), omitted when
+  the script reads only project files. No `Edited:`, `Revised:`, `Revision:` or `Notes:` lines.
 - No bare filename comment at the top (`* myfile.do`).
 - No code before banner. 
+- `Description` is one sentence, two at most: what the script produces. Method details and caveats
+  go in a comment on the block they concern, not in the banner.
+- `Date` is the date of the last edit. No `Revised:` / `Edited:` lines and no revision log in the
+  banner — git holds the history. The description says what the script does *now*.
 
 ## 5. Stata coding conventions
 
@@ -83,7 +89,10 @@ Notes / Sources: ...
 
 ## 7. Workflow
 
-- `master.do` runs four `0/1` switch sections: **prepare** (run-once Python steps: Dewey import, per-state extracts, ATTOM geocoding), **clean**, **build** (incl. the Builty → ATTOM → NFIP matching), **descriptives**. No analysis files yet.
+- `master.do` runs five `0/1` switch sections: **prepare** (run-once Python steps: Dewey import, per-state extracts, ATTOM geocoding), **clean**, **build** (incl. the Builty → ATTOM → NFIP matching), **descriptives**, **analysis**.
+- **`master.do` stays a table of contents.** One switch per script, named after the script's basename
+  (`summary_table` runs `summary_table.do`), each with one short comment saying what it does. No dated
+  notes. Options that only one call uses go inline in that call, not in a locals block up top.
 - **Jupyter notebooks (`.ipynb`) are never part of the construction pipeline** — `master.do` calls only `.do`/`.py`. Notebooks are fine for exploratory / one-off work (e.g. descriptives graph), but anything the pipeline depends on must be a `.do` or `.py` script.
 - Don't edit files marked **PENDING** (lost-work files being revised) — avoids merge conflicts.
 - Document every merge: keys, `keep()` rule, and any zero-fill. **Do not change sample restrictions, merge keys, or merge logic silently** — flag it.
@@ -96,6 +105,20 @@ Notes / Sources: ...
 ## 8. Project docs — what goes where (keep them separate)
 
 - **`CONVENTIONS.md`** (this file) — the rules. Owned by Vendela. Agents running on Vendela's machine may edit it directly on her behalf; collaborators and their agents (e.g. Anna's) propose changes to her rather than editing.
-- **`CLAUDE.md` / `AGENTS.md`** — agent entry points: *stable* project knowledge (pipeline, layout, data sources) + pointers. **Not** a task list, **not** a place to restate conventions.
+- **`CLAUDE.md`** — the agent entry point (all agents, not just Claude): *stable* project knowledge (pipeline, layout, data sources) + pointers. **Not** a task list, **not** a place to restate conventions.
 - **`TODO.md`** — the *living* handoff: open tasks, reconciliation, status, progress notes. In-flight items go here — not in `CLAUDE.md`.
 - **`README.md`** — human-facing overview.
+
+## 9. Comments — what and why, never when
+
+- A comment says what a block does or why a non-obvious choice was made. **Never when:** no dates
+  (`09-14:`, `(added 2026-09-06)`), no change markers (`Claude change`, `Revised`), no changelog. Git
+  holds the history; a dated note is stale a week later and says nothing to a new reader. If a change
+  note explains a real choice, rewrite it as a plain reason.
+- Don't restate the code, and don't re-explain (or re-apply) what upstream already guarantees — a
+  floor set in `complete.do` is not re-applied in a descriptive script (see §6).
+- One comment line per block is the norm; the banner carries the longer story.
+- Remove unused locals and dead code rather than commenting them out. (The commented-out sub-steps
+  under `merge_datasets` in `master.do` are the deliberate exception: they document what the driver
+  runs.)
+- `TODO.md` is the one place dates belong — it is a log, not code.

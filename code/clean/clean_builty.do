@@ -1,10 +1,10 @@
 /******************************************************************************
 Author: Vendela Norman
 Date: 2026-07-23
-Edited: 2026-09-06
+
 Description: Cleans the per-state Builty elevation permit data, restricting to 
     true elevations. 
-Revision: Added new_construction and retrofit flags to distinguish elevated new construction from retrofits.
+
 ******************************************************************************/
 
 args data states
@@ -230,7 +230,6 @@ foreach v of varlist date_issued date_finaled date_submitted {
 destring project_value total_fees, replace
 
 * Clean up variables 
-replace project_value = . if project_value == 1
 replace zipcode = string(real(zipcode), "%05.0f") if !mi(zipcode) & length(zipcode) < 5
 egen year = rowmin(year_issued year_finaled year_submitted)
 replace year = year_issued if year == 1900
@@ -240,7 +239,6 @@ local cue "grant|fund|award|assist|program|reimburs|financ"
 gen fund_fema = ustrregexm(description, "\bfema\b[^.;]{0,40}(`cue')|(`cue')[^.;]{0,40}\bfema\b")
 gen fund_hmgp = ustrregexm(description, "\bhmgp\b|hazard mitigation grant")
 gen fund_fma  = ustrregexm(description, "\bfma\b|flood mitigation assistance")
-gen fund_sfha = ustrregexm(description, "\bsfha\b|special flood hazard area")
 gen fund_bbb  = ustrregexm(description, "build(ing)? back better")
 
 * Collapse to property level
@@ -252,7 +250,7 @@ collapse (firstnm) fips_state fips_county zipcode locality cbsa fips_cbsa ///
     (firstnm) permit_subtype description status ///
     (min) year year_issued year_finaled year_submitted ///
     (max) project_value total_fees ///
-    (max) fund_fema fund_hmgp fund_fma fund_sfha fund_bbb ///
+    (max) fund_fema fund_hmgp fund_fma fund_bbb ///
     (max) retrofit new_construction ///
     (sum) n_permits = one, by(state county street_address)
 
@@ -261,38 +259,41 @@ merge m:1 year using "`data'/clean/cpi.dta", keep(1 3) keepusing(cpi) nogen
 foreach var in project_value total_fees {
     replace `var' = `var' / cpi if !mi(`var') 
 }
+// a new build's declared value is the house, not an elevation; values under $1k are fee and
+// document lines ("approved supporting document" $100, "raise sewer cleanout" $254)
+replace project_value = . if new_construction
+replace project_value = . if project_value < 1000
 
-* Encode funding source 
-gen byte funding_type = 0
-replace funding_type = 4 if fund_sfha
+* Encode funding source: later lines win, so a named program beats the generic FEMA cue
+gen funding_type = 0
 replace funding_type = 1 if fund_fema
 replace funding_type = 5 if fund_bbb
 replace funding_type = 3 if fund_fma
 replace funding_type = 2 if fund_hmgp
-label define funding_type_lbl 0 "Unknown" 1 "FEMA" 2 "HMGP" 3 "FMA" 4 "SFHA" 5 "Build Back Better"
+label define funding_type_lbl 0 "Unknown" 1 "FEMA" 2 "HMGP" 3 "FMA" 5 "Build Back Better"
 label values funding_type funding_type_lbl
 
 * Drop extraneous variables
 drop cpi year_issued year_finaled year_submitted fund_*
 
 * Label variables
-label var year           "Permit year (earliest of issued, finaled, submitted)"
-label var state          "State"
-label var fips_state     "State FIPS"
-label var county         "County name"
-label var fips_county    "County FIPS"
-label var cbsa           "CBSA"
-label var fips_cbsa      "CBSA FIPS"
-label var zipcode        "ZIP code"
-label var locality       "Permit-issuing locality"
-label var street_address "Street address (links to ATTOM)"
-label var permit_subtype "Permit subtype (line 1 of raw description)"
-label var description    "Permit description (screened for elevation)"
-label var project_value  "Project value (2023 $)"
-label var total_fees     "Permit fees (2023 $)"
-label var status         "Permit status"
-label var n_permits      "Builty permits at this property"
-label var funding_type   "Funding source (from permit text)"
+label var year             "Permit year (earliest of issued, finaled, submitted)"
+label var state            "State"
+label var fips_state       "State FIPS"
+label var county           "County name"
+label var fips_county      "County FIPS"
+label var cbsa             "CBSA"
+label var fips_cbsa        "CBSA FIPS"
+label var zipcode          "ZIP code"
+label var locality         "Permit-issuing locality"
+label var street_address   "Street address (links to ATTOM)"
+label var permit_subtype   "Permit subtype (line 1 of raw description)"
+label var description      "Permit description (screened for elevation)"
+label var project_value    "Project value (2023 $)"
+label var total_fees       "Permit fees (2023 $)"
+label var status           "Permit status"
+label var n_permits        "Builty permits at this property"
+label var funding_type     "Funding source (from permit text)"
 label var retrofit         "Elevation permit on an existing structure (any permit)"
 label var new_construction "Elevated new construction (any permit)"
 

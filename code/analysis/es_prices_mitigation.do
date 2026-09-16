@@ -167,8 +167,8 @@ eventstudyinteract lrate `evvars' if builty_covered_strict == 1, cohort(cohort) 
 coefplot (matrix(b_rate), v(V_rate) label("Log premium rate")) ///
          (matrix(b_flag), v(V_flag) label("NFIP elevated flag")), ///
     vertical yline(0) xline(4.5, lpattern(dash)) ///
-    coeflabels(ev_m5 "-5" ev_m4 "-4" ev_m3 "-3" ev_m2 "-2" ev_p0 "0" ///
-               ev_p1 "+1" ev_p2 "+2" ev_p3 "+3" ev_p4 "+4" ev_p5 "+5") ///
+    coeflabels(ev_m5 = "-5" ev_m4 = "-4" ev_m3 = "-3" ev_m2 = "-2" ev_p0 = "0" ///
+               ev_p1 = "+1" ev_p2 = "+2" ev_p3 = "+3" ev_p4 = "+4" ev_p5 = "+5") ///
     xtitle("Years relative to retrofit elevation permit") ytitle("Effect (ref. t = -1)") ///
     ciopts(recast(rcap)) legend(pos(6) rows(1)) graphregion(color(white))
 graph export "`output'/figures/es_retrofit.pdf", replace
@@ -209,8 +209,8 @@ foreach rr in 0 1 {
 coefplot (matrix(b_flip0), v(V_flip0) label("Pre-RR2.0")) ///
          (matrix(b_flip1), v(V_flip1) label("RR2.0")), ///
     vertical yline(0) xline(4.5, lpattern(dash)) ///
-    coeflabels(f_m5 "-5" f_m4 "-4" f_m3 "-3" f_m2 "-2" f_p0 "0" ///
-               f_p1 "+1" f_p2 "+2" f_p3 "+3" f_p4 "+4" f_p5 "+5") ///
+    coeflabels(f_m5 = "-5" f_m4 = "-4" f_m3 = "-3" f_m2 = "-2" f_p0 = "0" ///
+               f_p1 = "+1" f_p2 = "+2" f_p3 = "+3" f_p4 = "+4" f_p5 = "+5") ///
     xtitle("Years relative to NFIP recording elevation") ytitle("Log premium rate (ref. t = -1)") ///
     ciopts(recast(rcap)) legend(pos(6) rows(1)) graphregion(color(white))
 graph export "`output'/figures/es_flip.pdf", replace

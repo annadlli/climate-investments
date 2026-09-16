@@ -222,6 +222,8 @@ def main() -> None:
     work.mkdir(parents=True, exist_ok=True)
 
     frame = pd.read_stata(input_path, convert_categoricals=False)
+    with pd.io.stata.StataReader(input_path) as reader:
+        labels = reader.variable_labels()   # pandas drops these on write unless passed back
 
     # If the cleaned file does not already have a stable ID, build one from the
     # address keys so later review files stay reproducible.
@@ -338,7 +340,8 @@ def main() -> None:
     # The basic integrity checks are relaxed here so the script is not stuck on edge case scenarios
     frame.drop(columns="address_id", inplace=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_stata(output_path, write_index=False, version=118)
+    frame.to_stata(output_path, write_index=False, version=118,
+                   variable_labels={k: v for k, v in labels.items() if k in frame.columns})
     # 09-07: fill counts to the log only; no diagnostic or review files from the pipeline
     print(frame["zipcode_source"].value_counts(dropna=False).to_string())
     print(frame.groupby("state")["censusblockgroupfips_builty"]

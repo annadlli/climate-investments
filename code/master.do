@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-09-02
+Date: 2026-09-15
 
 Description: Runs the data-construction pipeline for the climate-investments
     project.
@@ -34,17 +34,8 @@ local output "`code'/../output"
 * Locals
 * -----------------------------------------------------------------------------
 
-// States 
-// NJ dropped for lack of Builty
-// coverage. The 20-state list is AL CT DE FL GA LA ME MD MA MS NH NJ NY NC PA
-// RI SC TX VT VA; every script takes `states' as an argument, so widening is
-// a one-line change here.
+// States: the panel is built for this list, so a change means rerunning from prep_nfip_policies
 local states "FL LA TX"
-
-// Matching driver options (merge_datasets): rerun from this step where outputs exists 09-13
-local matching_from "3"
-local matching_memory "8GB"
-local matching_tmp "`code'/../tmp/matching"
 
 // Dewey/ATTOM acquisition inputs. The manifest is private because it contains
 // licensed Dewey endpoint URLs. extract_attom requires an existing run id.
@@ -65,37 +56,33 @@ local geocode_attom                     = 0 // geocode ATTOM addresses to fill C
 // ii) Clean
 local crosswalks                        = 0 // create geographic crosswalks
 local clean_cpi                         = 0 // clean CPI deflator data
-local clean_fma                         = 0 // clean FEMA FMA data
+local clean_hma                         = 0 // clean FEMA HMA elevation grants (all programs)
 local clean_builty                      = 0 // clean Builty permits data
 local geocode_builty                    = 0 // geocode cleaned Builty data to fill in missing ZIP codes
-local clean_builty_coverage             = 0 // prepare Builty permit coverage flag
-local clean_builty_coverage_rate        = 0 // Builty permits per 100 ATTOM SF properties; strict coverage flag (09-07)
+local clean_builty_coverage             = 0 // Builty permit counts by county/ZIP/locality x year; coverage flags (needs geocoded ATTOM)
 local clean_nfip_policies               = 0 // clean NFIP policies data
 local clean_nfip_claims                 = 0 // clean NFIP claims data
 local clean_nfip_multiple_loss          = 0 // clean NFIP multiple-loss data
 
 // iii) Build 
-local prep_fma                          = 0 // collapse FMA across years to zip/county level
+local prep_hma                          = 0 // collapse HMA grants across years to ZIP and county
 local prep_nfip_policies                = 0 // append NFIP policy data across states; collapse to property level for the ATTOM match
-local merge_nfip_fma                    = 0 // merge NFIP policies, claims, multiple-loss data & HMA data
+local merge_nfip_hma                    = 0 // merge NFIP policies, claims, multiple-loss data & HMA data
 local merge_datasets                    = 0 // runs all of the torch scripts except geocode_attom.
     // local attom_geocode                  = 0 // merge geocoded Census block group to full ATTOM property records
     // local attom_nfhl                     = 0 // merge Attom w/ NFHL flood zone data
     // local attom_builty                   = 0 // merge Attom w/ Builty 
     // local nfip_attom                     = 0 // merge ATTOM with NFIP using the matching tiers
 local parquet_dta                       = 0 // convert parquet file to Stata
-local attom_value_wide                  = 0 // ATTOM value by tax year, one row per property, 2023 $ (added 2026-09-06)
-local attom_value_dta                   = 0 // Stata copy of the value file, restricted to ATTOM properties linked to NFIP (after parquet_dta)
-local complete                          = 1 // compile final analysis dataset 
+local attom_value                       = 0 // ATTOM market value for matched properties, every year, 2023 $ (after parquet_dta)
+local attom_value_dta                   = 0 // one Stata copy of the value files
+local complete                          = 0 // compile final analysis dataset 
 
-// v) Descriptives
-local summary_stats                     = 1 // create summary statistics table
+// iv) Descriptives
+local summary_table                     = 0 // create summary statistics table
 local histograms                        = 1 // histograms of cumulative claims and elevation project cost
-local elevations_by_state               = 0 // count elevation retrofits by state in Builty and HMA (deck tab)
-local builty_coverage_table             = 0 // Builty permit coverage by state for the deck 
-local empirical_facts                   = 0 // create empirical-facts figures and tables
 
-// vi) Analysis
+// v) Analysis
 local es_prices_mitigation              = 0 // elevation discount + event studies: prices do not reward mitigation
 
 * -----------------------------------------------------------------------------
@@ -121,7 +108,7 @@ if `extract_attom' == 1 {
         --manifest "`dewey_manifest'" ///
         --run-id "`dewey_run_id'"
 }
-if `geocode_attom' == 1 { // run with TORCH: network-bound Census geocode, resume-safe
+if `geocode_attom' == 1 { 
     foreach state of local states {
         shell `python' "`code'/prepare/geocode_attom.py" --data "`data'" --state "`state'"
     }
@@ -134,8 +121,8 @@ if `crosswalks' == 1 {
 if `clean_cpi' == 1 {
     do "`code'/clean/clean_cpi.do" "`data'"
 }
-if `clean_fma' == 1 {
-    do "`code'/clean/clean_fma.do" "`data'"
+if `clean_hma' == 1 {
+    do "`code'/clean/clean_hma.do" "`data'"
 }
 if `clean_builty' == 1 {
     do "`code'/clean/clean_builty.do" "`data'" "`states'"
@@ -145,9 +132,6 @@ if `geocode_builty' == 1 {
 }
 if `clean_builty_coverage' == 1 {
     shell `python' "`code'/clean/clean_builty_coverage.py" --data "`data'" --states "`states'"
-}
-if `clean_builty_coverage_rate' == 1 {
-    shell `python' "`code'/clean/clean_builty_coverage_rate.py" --data "`data'" --states "`states'"
 }
 if `clean_nfip_policies' == 1 {
     do "`code'/clean/clean_nfip_policies.do" "`data'" "`states'"
@@ -160,27 +144,27 @@ if `clean_nfip_multiple_loss' == 1 {
 }
 
 // iii) Build
-if `prep_fma' == 1 {
-    do "`code'/build/prep_fma.do" "`data'"
+if `prep_hma' == 1 {
+    do "`code'/build/prep_hma.do" "`data'"
 }
 if `prep_nfip_policies' == 1 {
     do "`code'/build/prep_nfip_policies.do" "`data'" "`states'"
 }
-if `merge_nfip_fma' == 1 {
-    do "`code'/build/merge_nfip_fma.do" "`data'"
+if `merge_nfip_hma' == 1 {
+    do "`code'/build/merge_nfip_hma.do" "`data'"
 }
 
 // iv) Build (Anna)
-if `merge_datasets' == 1 {
+if `merge_datasets' == 1 { 
     foreach state of local states {
         shell bash "`code'/slurm/run_property_matching.sh" ///
             --state "`state'" ///
             --data "`data'" ///
             --python "`python'" ///
-            --memory "`matching_memory'" ///
+            --memory "8GB" ///
             --threads 4 ///
-            --from "`matching_from'" ///
-            --tmp "`matching_tmp'/`state'" 
+            --from 3 ///
+            --tmp "`code'/../tmp/matching/`state'"
     }
 }
 if `parquet_dta' == 1 {
@@ -191,38 +175,24 @@ if `parquet_dta' == 1 {
             --output "`data'/build/nfip_attom_property/`st'_nfip_attom_property.dta"
     }
 }
-if `attom_value_wide' == 1 {
-    shell `python' "`code'/build/attom_value_wide.py" --data "`data'" --states "`states'"
+if `attom_value' == 1 {
+    shell `python' "`code'/build/attom_value.py" --data "`data'" --states "`states'"
 }
 if `attom_value_dta' == 1 {
-    // 09-07: run after parquet_dta. Keeps only ATTOM IDs that the matcher assigned to an NFIP property, so the .dta is sig smaller than state-wide parquet file
-    foreach state of local states {
-        local st = lower("`state'")
-        shell `python' "`code'/build/parquet_dta.py" ///
-            --input "`data'/build/attom_value_wide/`st'_attom_value_wide.parquet" ///
-            --output "`data'/build/attom_value_wide/`st'_attom_value_wide.dta" ///
-            --where "attomid IN (SELECT assigned_attomid FROM read_parquet('`data'/build/nfip_attom_pipeline_v2/nfip_attom_property/`st'_nfip_attom_property.parquet') WHERE assigned_attomid IS NOT NULL)"
-    }
+    shell `python' "`code'/build/parquet_dta.py" ///
+        --input "`data'/build/attom_value/*_attom_value.parquet" ///
+        --output "`data'/build/attom_value/attom_value.dta"
 }
 if `complete' == 1 {
     do "`code'/build/complete.do" "`data'" "`states'"
 }
 
 // v) Descriptives
-if `summary_stats' == 1 {
+if `summary_table' == 1 {
     do "`code'/descriptives/summary_table.do" "`data'" "`output'"
 }
 if `histograms' == 1 {
     do "`code'/descriptives/histograms.do" "`data'" "`output'"
-}
-if `elevations_by_state' == 1 {
-    do "`code'/descriptives/scratch/elevations_by_state.do" "`data'" "`output'"
-}
-if `builty_coverage_table' == 1 {
-    do "`code'/descriptives/scratch/builty_coverage_table.do" "`data'" "`output'"
-}
-if `empirical_facts' == 1 {
-    do "`code'/descriptives/scratch/empirical_facts_figures.do" "`data'" "`output'"
 }
 
 // vi) Analysis

@@ -1,9 +1,9 @@
 /******************************************************************************
 Authors: Vendela Norman
-Date: 2026-08-27
-Edited: 2026-09-12
+Date: 2026-09-15
+
 Description: Cleans the FEMA NFIP redacted claims data. 
-Revision: added in ICC claims to keep  -> pays out when there is activity, which can be elevation, relocation, or demolition after sig damage.
+
 Source: fema.gov/openfema-data-page/fima-nfip-redacted-claims-v2
 
 ******************************************************************************/
@@ -75,13 +75,8 @@ replace claim_building = amountpaidonbuildingclaim if mi(claim_building) | claim
 replace claim_contents = amountpaidoncontentsclaim if mi(claim_contents) | claim_contents < 0
 drop amountpaidonbuildingclaim amountpaidoncontentsclaim
 
-* Drop claims above the cap 
-// TODO: decide the cap rule. 
-// stop 
-// drop if claim_cb > 250000 // NFIP claims cap
-
 * Deflate nominal variables
-foreach var in claim_building claim_contents claim_icc property_val_nfip { 
+foreach var in claim_building claim_contents claim_icc property_val_nfip coverage_building coverage_contents { 
     replace `var' = `var' / cpi if !mi(`var') & !mi(cpi)
 }
 drop cpi
@@ -90,7 +85,7 @@ drop cpi
 egen claim_cb = rowtotal(claim_building claim_contents) // total claims across building + contents
 
 * Drop rejected and uncashed claims 
-drop if mi(claim_cb) | claim_cb <= 0 // negative = uncashed 
+drop if claim_cb <= 0 // rejected or uncashed
 
 * Drop duplicates
 duplicates drop
@@ -107,8 +102,12 @@ foreach var in claim_building claim_contents claim_cb claim_icc {
 bys property_id year_loss (dateofloss): keep if _n == 1
 isid property_id year_loss
 
+* Flag and correct buildings with claims above coverage
+gen claim_over_coverage = claim_cb > coverage_building + coverage_contents if !mi(coverage_contents)
+replace claim_cb = coverage_building + coverage_contents if claim_over_coverage == 1
+
 * Drop additional variables 
-drop dateofloss n_records numberoffloors buildingdeductiblecode buildingdamageamount buildingreplacementcost
+drop dateofloss numberoffloors buildingdeductiblecode buildingdamageamount buildingreplacementcost
 
 * Label variables
 label var state                    "State"
@@ -120,10 +119,12 @@ label var year_loss                "Year of loss"
 label var claim_building           "Net amount paid on building claim (2023 $)"
 label var claim_contents           "Net amount paid on contents claim (2023 $)"
 label var claim_cb                 "Total net amount paid, building + contents (2023 $)"
+label var claim_over_coverage      "Payout exceeded building + contents coverage (id shared by several structures)"
+label var n_records                "Claim payment records in the property-year"
 label var claim_icc                "Net Increased Cost of Compliance payment (2023 $)" 
 label var property_val_nfip        "Building property value (NFIP, 2023 $)"
-label var coverage_building        "Total building insurance coverage"
-label var coverage_contents        "Total contents insurance coverage"
+label var coverage_building        "Building insurance coverage (2023 $)"
+label var coverage_contents        "Contents insurance coverage (2023 $)"
 label var originalconstructiondate "Original construction date"
 label var originalnbdate           "Original new-business policy date"
 

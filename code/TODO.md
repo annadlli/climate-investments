@@ -1,6 +1,6 @@
 # TODO — climate-investments
 
-_Rewritten 2026-09-02, updated 2026-09-03, 2026-09-07 and 2026-09-10 (Anna) against the live `master.do`. Pre-September history (torch_work cleanup,
+_Rewritten 2026-09-02, updated 2026-09-03, 2026-09-07, 2026-09-10 (Anna) and 2026-09-15 (Vendela) against the live `master.do`. Pre-September history (torch_work cleanup,
 build/ consolidation, NFIP/FMA/CPI build notes) is in git: `git show 10dffe3:code/TODO.md`.
 Follow `CONVENTIONS.md` as you work._
 
@@ -9,25 +9,71 @@ Follow `CONVENTIONS.md` as you work._
 Any acquisition or construction step must run from `master.do` behind a `0/1` switch. Cluster
 execution is a thin wrapper in `slurm/` around the same script, never separate logic.
 
-## 0. In progress — end of day 2026-09-03
+## 0. State of the pipeline — 2026-09-15
 
-Pipeline state on disk (all rebuilt 2026-09-03 unless noted):
-- `clean/nfip_policies_state/{st}.dta` (17:00–17:35), `clean/nfip_policies_{panel,property}.dta` (18:10),
-  `clean/fma_{zip,county}.dta`, `build/nfip_hma_panel.dta` (18:27), `analysis/analysis.dta` (19:43).
-  These predate the last two cleaner edits below, so the chain needs one more full run.
-- **Rerun needed** (in order): `clean_nfip_policies` → `prep_nfip_policies` → `merge_nfip_fma` → `complete`.
-  Two edits since the last run: `clean_nfip_policies.do` drops policies with no block group (129,110
-  policy-years, 45,508 properties, 0.5%) and builds property_id on block group + the two dates, so the
-  claims merge is 1:1; `clean_builty.do` got a narrow tree-permit fix (subtype mentioning trees/pruning
-  now killed unconditionally; "tree lifting/leaning", "raise canopy", "prune" added to the description
-  kill) — rerun `clean_builty` too (its state files date from Jul 23).
+- Panel is three-state end to end (FL LA TX): `prep_nfip_policies` → `merge_nfip_hma` → `complete`
+  rerun 09-15. The 20-state per-state clean files are untouched; widening means rerunning from
+  `prep_nfip_policies`, not just `complete` (the state re-filter that used to sit in `complete.do` is gone).
+- ATTOM value: `attom_value.py` (was `attom_value_wide.py`) writes one row per NFIP-matched ATTOM
+  property per year 2000-2026, `build/attom_value/{st}_attom_value.parquet`, columns `value_own`
+  (that tax year), `value` (carried from the nearest tax year, most recent first) and `value_year`;
+  `attom_value_dta` converts all states to one `attom_value.dta`. `complete.do` merges `value` as
+  `attom_value` (was `attom_value_2023`; the suffix meant 2023 dollars, not the 2023 tax year) in one
+  `merge m:1` on ATTOM id x policy year. The 27-column wide file and the year loop are gone.
+- `complete.do` (end of day 09-15) merges links, value and coverage, then builds only the harmonized
+  elevation: `elevated` (NFIP flag, or 1 from the harmonized year on), `elevation_retrofit` (event
+  observed in sample), `elevation_year` (Builty permit, else NFIP flag flip `nfip_flip`, else ICC
+  payment `nfip_icc` if the property stays on the panel afterwards, since ICC also pays for
+  demolition), `elevation_source`, `elevation_funded` (grant named in the permit text, or an ICC
+  payment), `elevation_cost` (was `builty_project_value`; Builty declared value, FL and TX). The
+  NFIP flip and ICC years are built in `merge_nfip_hma.do`. `builty_elevated` is set missing where a
+  permit is unobservable (no ATTOM match, or no Builty feed in the county-year). No row is dropped
+  for coverage; `builty_covered_strict` rides along as a flag and the sample rule lives in the
+  analysis script. Unmatched NFIP properties stay (16% overall, 39% of LA). The diagnostics file
+  is gone; Anna can rebuild diagnostics from the link files if needed.
+- Claims (09-15): `property_id` is block group x construction date x NB date, so several structures
+  can share one id and their claims sum. `clean_nfip_claims.do` deflates coverage, keeps `n_records`,
+  flags `claim_over_coverage` and caps the property-year payout at building + contents coverage;
+  `merge_nfip_hma.do` carries the property-level `claim_collision`; `complete.do` drops those
+  properties (5,449 of 7.1M). Collided ids also carry one structure's premiums and coverage for
+  several; only a finer id would fix that, and the redacted file has none.
+- Builty cost (09-15): the screen moved into `clean_builty.do` and is by permit type, not by dollar
+  threshold: the declared value is set missing on new-construction permits (71 of the 80 values
+  over $1m were new builds) and below $1k (fee and document lines). No ceiling. Any change there
+  means rerunning geocode_builty and matching steps 3-4. `fund_sfha` is gone from the funding
+  cues (it matched a FL permit-type prefix, not a funder).
+- FMA → HMA rename (09-15): `clean_hma.do`, `prep_hma.do`, `merge_nfip_hma.do` and the `hma_elevation` /
+  `hma_zip` / `hma_county` files pool every HMA elevation program (HMGP 13,145 properties, FMA 4,269,
+  SRL 1,097, PDM/BRIC/LPDM/RFC 336); `programarea` stays on the clean file. Panel carries
+  `hma_n_properties`, `hma_spend`, `hma_year_min`, `hma_year_max`. Federal spend per elevated
+  property across the 1,937 funded projects: median $130k, total spend over total properties $176k.
+  The old `fma_*.dta` files are still on Dropbox; Anna's scratch scripts read the old names.
+- Builty retrofit vs new-construction distinction is not carried into `complete.do` (09-15): every
+  Builty permit counts as an elevation (`builty_elevated`); `builty_retrofit` and
+  `builty_new_construction` stay in the link files for diagnostics. `es_prices_mitigation.do` still
+  reads `builty_retrofit` and needs `builty_elevated` instead.
+- [ ] Funding variable (09-15): `elevation_funded` only sees grant language in Builty permit text, and
+      the county HMA rate `hma_p` was dropped as uninformative (constant within county, 30-year
+      numerator against a 2009+ denominator). Think through one funding measure that combines the
+      Builty text cue, an ICC payment (NFIP money for the elevation) and county HMA exposure, and
+      say what "self-financed" means against it. Ties to the unfunded-applications item below.
+- [ ] LA ATTOM valuation (09-15): the `market_value_total` field is far below market in several
+      parishes. 2022 medians: Caddo $39k, Ouachita $32k, Rapides $40k, Calcasieu $61k, each with
+      17-29% of properties under $10k nominal, against $123-147k in East Baton Rouge, Jefferson,
+      Orleans, St. Tammany. Louisiana assesses residential property at 10% of market, so the field
+      may carry an assessed-type figure in those parishes. The $10k floor is not the fix. Check
+      `assessed_value_total` x 10 against `market_value_total` by parish and decide which to use
+      for LA before any LA value result is shown. Statewide LA real median is $105k vs FL $190k, TX $170k.
+- [ ] Rerun in progress at end of day 09-15: clean_builty → geocode_builty → matching steps 3-4 for
+      FL LA TX locally (`--from 3`, 8 GB) → `parquet_dta` → `complete` → `summary_table` →
+      `histograms`. Everything upstream of the matching (HMA chain, claims, `merge_nfip_hma`, the
+      value file) is rebuilt. Check the link-file dates, the value merge rate in the `complete` log,
+      and the `elevated` / `elevation_retrofit` / `elevation_cost` rows of the summary table.
+      `histograms.do` now also draws `claims_vs_elevation_cost.png` (cost against claims paid
+      through the elevation year, 45-degree line); the two histograms keep a $1k display floor.
 - Don't save `master.do` or a running do-file while a batch job launched from it is running: Stata
-  reads do-files incrementally and picks up a shifted byte offset (two runs died this way today).
-- `summary_table.do` lists cross-section variables (premium_init etc.) that the property-year
-  `analysis/analysis.dta` lacks; revise its variable list before running it.
-- `complete.do` extract: the TX/FL/LA 50% draw is 1.5 GB; a cutoff near 0.17 gives ~500 MB. Not seeded.
-- ATTOM market value on the panel needs cleaning: ≥5% of matched properties carry exactly 0, max
-  1.85e9. Zeros → missing, inspect the top tail, deflate (see item 3).
+  reads do-files incrementally and picks up a shifted byte offset (killed a run again 09-15).
+- `complete.do` extract: the 10% draw to `analysis/extracts/500M_subsample.dta` is not seeded.
 - [x] Anna, 2026-09-07: reviewed the 09-03 matching changes; matching resubmitted on the cluster for
   FL LA NJ TX from step 3 (`--from 3`, cached geocode + NFHL reused). `master.do` default `states` is
   now FL LA NJ TX (20-state list kept in a comment). New since 09-06: `clean_builty.do` keeps elevated
@@ -39,20 +85,17 @@ Pipeline state on disk (all rebuilt 2026-09-03 unless noted):
 - [x] Claude change 09-10: state sample settled (issue #16, Vendela 09-08): `states` is FL LA TX; NJ dropped for lack of
   Builty coverage. The 09-08 six-state widening (NC NY) is reverted; NC and NY link files on disk
   are the stale Aug 17 versions and are not used.
-- [x] Claude change 09-15: Builty cost cleaned (Vendela's slide notes). `complete.do` sets
-      `builty_project_value` to missing outside $1,000-$1,000,000 (2023 $) next to the retrofit-only
-      line: the low tail is paperwork lines, the high tail a pump station and new builds the screen
-      let through (11 above, 48 below, of 1,257). Placed in the build step, not `clean_builty.do`,
-      so a change to the rule does not force the matching to rerun (Anna's call, 09-15).
+- [x] Claude change 09-15: Builty cost first cleaned in `complete.do` with a $1k-$1m window; superseded
+      the same day by the permit-type screen in `clean_builty.do` (section 0).
       `histograms.do` now draws both panels from `analysis.dta` on one x-axis.
 - [x] Claude change 09-10 (done 09-14, redone 09-15 with the loose rungs): rerun for the 09-10 pipeline changes (issues #23-#26), in order:
   `clean_nfip_claims` (adds `claim_icc`; note the `stop` Vendela left before the claims cap) →
   `merge_nfip_fma` (carries `claim_icc`, `hmgp_n_properties`) ← `prep_fma` (HMGP county counts);
   on the cluster, matching from step 3 for FL LA TX (`FROM_STEP=3 sbatch --array=3,5,17
   code/slurm/submit_property_matching.sh`) so `builty_project_value` / `builty_funding_type` reach
-  the link files, then copy `nfip_attom_property/*.parquet` back → `parquet_dta` → `attom_value_wide`
+  the link files, then copy `nfip_attom_property/*.parquet` back → `parquet_dta` → `attom_value`
   (new $10k floor) → `attom_value_dta` → `complete` (now writes `analysis.dta` and
-  `analysis_with_diagnostics.dta`) → `summary_stats`, `es_prices_mitigation`. `complete.do` fails on
+  `analysis_with_diagnostics.dta`) → `summary_table`, `es_prices_mitigation`. `complete.do` fails on
   the current link files because they lack the two new Builty columns. LA steps 3-4 were run locally
   on 09-10 as a test of the Python changes (scratch output, not copied to Dropbox).
 
@@ -182,17 +225,14 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
       Book, so coverage is flagged at the grain the feeds exist (needs name matching; locality names
       are noisy in FL and VA). `nfipratedcommunitynumber` is dropped in `merge_nfip_fma.do`; keep it
       if (c) goes ahead.
-- [ ] Further sample restrictions in `complete.do` Section 3 (Builty coverage is there now): SFHA
-      and FMA eligibility, leaving `build/nfip_hma_panel.dta` as the unrestricted universe. Whether to
-      also restrict on `attom_matched` is open — keep as a flag unless the analysis is matched-only.
-- [x] Deflate ATTOM property values -- done 2026-09-06 as a wide file: `attom_value_wide.py` writes
-      `build/attom_value_wide/{st}_attom_value_wide.parquet`, one row per ATTOM property, market value
-      by tax year in 2023 $, zeros and values above $100M set to missing; `attom_value_dta` converts the
-      NFIP-linked subset to Stata after the matching. Merged onto the panel as `attom_value_2023`
-      in `complete.do` (09-07). 09-10 (issue #26): values below $10,000 nominal are also set to
-      missing upstream (`--min-value`), replacing the ad hoc `>= 10000` screen that sat in
-      `summary_table.do`; the nominal `attom_market_value_total` is dropped from `analysis.dta`.
-      Still open: what the 23% (LA) of property-years logged as exactly zero mean.
+- [ ] Further sample restrictions (SFHA, FMA eligibility): decided 09-15 that `complete.do` restricts
+      nothing; coverage and `attom_matched` are flags and the analysis scripts apply the sample rule.
+      Any future restriction goes there too, leaving `analysis.dta` as the flagged universe.
+- [x] Deflate ATTOM property values -- done 2026-09-06 (wide file), replaced 09-15 by the long
+      `attom_value.py` build described in section 0. Cleaning unchanged: zeros, values below $10,000
+      nominal and above $100M set to missing, CPI base 2023. Checked 09-15: no negatives, real medians
+      FL $135k (2002) to $284k (2023). Still open: what the 23% (LA) of property-years logged as exactly
+      zero mean, and the LA parish-level valuation issue in section 0.
 
 ## 4. Descriptives — empirical facts (Claude change 09-15)
 

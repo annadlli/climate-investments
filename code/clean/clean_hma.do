@@ -1,11 +1,9 @@
 /******************************************************************************
 Author: Vendela Norman
-Date: 2026-07-16
-Edited: 2026-09-08
+Date: 2026-09-15
+
 Description: Cleans FEMA HMA mitigated properties and project files, restricting
     to single-family elevation homes. 
-REvision:  all HMA programs are kept, with programarea as
-    the flag. Get prep_fma to do the restrictions.
 
 Sources: Properties -- https://catalog.data.gov/dataset/hazard-mitigation-assistance-mitigated-properties
         Projects -- fema.gov/openfema-data-page/hazard-mitigation-assistance-projects-v4
@@ -20,7 +18,7 @@ args data
 * Import property-level data
 import delimited "`data'/raw/hma_mitigated_properties.csv", clear stringcols(_all)
 
-* Restrict to single-family elevations (edited 09-08)
+* Restrict to single-family elevations 
 keep if propertyaction == "Elevation"
 keep if structuretype == "Single Family"
 
@@ -29,14 +27,13 @@ keep if structuretype == "Single Family"
 preserve
     import delimited using "`data'/raw/HazardMitigationAssistanceProjects.csv", clear ///
         varnames(1) stringcols(_all) bindquote(strict)
-    duplicates drop projectidentifier, force //09-08: two ids repeat outside FMA, addressing that
+    duplicates drop projectidentifier, force // two ids repeat outside FMA, addressing that
     ren numberofproperties n_properties_proj
-    tempfile fma_projects
-    save "`fma_projects'", replace
+    tempfile hma_projects
+    save "`hma_projects'", replace
 restore
 
-//09-08: removed assert (2 3) as HMGP property records with no project rows would throw error here: they are dropped by the status filter later. 
-merge m:1 projectidentifier using "`fma_projects'", gen(project_merge)
+merge m:1 projectidentifier using "`hma_projects'", gen(project_merge)
 
 * Drop irrelevant variables 
 drop disasternumber recipientadmincostamt recipienttribalindicator ///
@@ -49,7 +46,7 @@ drop disasternumber recipientadmincostamt recipienttribalindicator ///
 
 * Filter to relevant projects 
 // Note: This keeps some compound projects (e.g., elevations plus buyouts)
-// i) Keep FMA home elevation projects 
+// i) Keep home elevation projects 
 keep if propertyaction == "Elevation" | strpos(projecttype, "202.1") > 0 | strpos(projecttype, "202.2") > 0 // Home elevations 
 drop if propertyaction != "Elevation" & strpos(projecttype, "106.2") > 0 // some "other non-construction" project 
 // ii) Approved and completed projects only
@@ -101,7 +98,6 @@ ren dateclosed_year year_closed // missing for non-closed projects
 // iv) Checks 
 assert !mi(year_elev_min) 
 
-
 * Set 0's to missing for some variables 
 // Note: These variables should not be 0 so set to missing 
 // Note: I think some of these 0s are actually redactions when #properties = 1 
@@ -111,10 +107,10 @@ foreach var in numberofproperties n_properties_proj numberoffinalproperties bene
 
 * Create additional analysis variables 
 // i) FMA spend 
-gen fma_spend = federalshareobligated 
-replace fma_spend = initialobligationamount if (fma_spend == 0 | mi(fma_spend)) ///
+gen hma_spend = federalshareobligated 
+replace hma_spend = initialobligationamount if (hma_spend == 0 | mi(hma_spend)) ///
     & !mi(initialobligationamount) & initialobligationamount > 0
-replace fma_spend = projectamount * costsharepercentage if fma_spend == 0 | mi(fma_spend) 
+replace hma_spend = projectamount * costsharepercentage if hma_spend == 0 | mi(hma_spend) 
 // ii) Number of properties
 // Note: n_properties is the project total; n_properties_rec is the structures in this
 // MitProps record, and is missing on project-only rows, which have no record. Keeping
@@ -128,7 +124,7 @@ ren year_elev_min year
 merge m:1 year using "`data'/clean/cpi.dta", assert(2 3) keep(1 3) keepusing(cpi) nogen
 
 * Deflate nominal variables 
-foreach var in fma_spend netvaluebenefits {
+foreach var in hma_spend netvaluebenefits {
     replace `var' = `var' / cpi if !mi(`var') & !mi(cpi)
 }
 
@@ -159,7 +155,7 @@ label var obligation_year            "Year of initial obligation"
 label var year_closed                "Maximum elevation year"
 label var n_properties               "Number of properties (project)"
 label var n_properties_rec           "Number of properties (this record)"
-label var fma_spend                  "Federal dollars obligated (2023 $)"
+label var hma_spend                  "Federal dollars obligated (2023 $)"
 label var bcr                        "Benefit-cost ratio"
 label var net_value_benefits         "Net value of benefits (2023 $)"
 label var region                     "FEMA region"
@@ -170,11 +166,11 @@ label var project_identifier         "Project identifier"
 
 * Save 
 order state state_code county county_code subrecipient city zip programarea ///
-    obligation_year year_closed n_properties n_properties_rec fma_spend bcr ///
+    obligation_year year_closed n_properties n_properties_rec hma_spend bcr ///
     net_value_benefits 
 order propertypartofproject typeofresidency damagecategory foundationtype ///
     actualamountpaid region project_counties programarea project_type project_identifier, last 
 sort state county city obligation_year
 compress
-save "`data'/clean/fma_elevation.dta", replace
+save "`data'/clean/hma_elevation.dta", replace
 

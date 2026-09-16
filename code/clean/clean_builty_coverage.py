@@ -1,17 +1,11 @@
 """
-Author: Vendela Norman
-Date: 2026-09-03
-Revised: 2026-09-07
+Authors: Vendela Norman and Anna Li
+Date: 2026-09-15
 
-Description: Builds a Builty permit-coverage index from the raw permits parquet:
-    permit counts (all permit types) by county x year and by ZIP x year, with a
-    flag for county-years that report any permits (loose threshold; see TODO.md
-    for the housing-stock benchmark and municipal matching). NFIP properties outside
-    covered county-years cannot show a Builty elevation, so the flag restricts the
-    analysis sample rather than treating them as not elevated.
-
-    2026-09-07:  writes the crosswalk at the finest unit
-    the raw file has, permit-issuing LOCALITY x year
+Description: Builty permit coverage from the raw permits parquet: all-permit counts
+    by county x year, ZIP x year and permit-issuing locality x year. The county file
+    carries two flags: builty_covered (any permit in the county-year) and
+    builty_covered_strict (at least --floor permits per 100 ATTOM single-family homes).
 
 Notes: County FIPS is near-complete except New York City, whose feed carries no
     county; boroughs are assigned from the ZIP prefix there. The three date fields
@@ -24,9 +18,11 @@ import argparse
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 
 MIN_PERMITS = 1   # county-year permit floor to count as covered (loose: any permit at all)
 YEAR_MIN, YEAR_MAX = 1990, 2026
+SF_USE_CODES = ("376", "380", "382", "383", "385", "386")   # the single-family use codes the matcher uses
 
 # NYC borough county FIPS from ZIP prefix
 NYC_ZIP_TO_COUNTY = """
@@ -42,6 +38,8 @@ def main():
     p = argparse.ArgumentParser(description="Builty permit coverage by county-year and ZIP-year.")
     p.add_argument("--data", required=True, help="Data root with raw/ and clean/ (from master.do).")
     p.add_argument("--states", required=True, help="2-letter abbreviations (passed from master.do's `states`).")
+    p.add_argument("--raw", default=None, help="Permits parquet (default: raw/builty_all.parquet).")
+    p.add_argument("--floor", type=float, default=1.0, help="Permits per 100 homes for builty_covered_strict.")
     args = p.parse_args()
 
     states = [s.strip().upper() for s in args.states.replace(",", " ").split() if s.strip()]
@@ -82,12 +80,25 @@ def main():
                CAST(builty_n_permits >= {MIN_PERMITS} AS INTEGER) AS builty_covered
         FROM c ORDER BY 1, 2, 3
     """).fetchdf()
+    # ATTOM single-family homes per county, so coverage can be judged against the housing stock
+    geocoded = data / "build" / "nfip_attom_pipeline_v2" / "geocoded"
+    codes = ", ".join(f"'{c}'" for c in SF_USE_CODES)
+    attom = pd.concat([con.execute(f"""
+        SELECT '{st}' AS state, countycode, count(DISTINCT attomid) AS attom_n_sf
+        FROM read_parquet('{geocoded / f"{st.lower()}_attom_geocoded.parquet"}')
+        WHERE trim(cast(property_use_std AS varchar)) IN ({codes}) AND countycode IS NOT NULL
+        GROUP BY 1, 2
+    """).df() for st in states], ignore_index=True)
+    county = county.merge(attom, on=["state", "countycode"], how="left")
+    county["builty_per_100"] = 100 * county["builty_n_permits"] / county["attom_n_sf"]
+    county["builty_covered_strict"] = (county["builty_per_100"] >= args.floor).astype("int8")
+
     zipc = con.execute("""
         SELECT state, zipcode, year, count(*) AS builty_n_permits
         FROM permits WHERE zipcode IS NOT NULL
         GROUP BY 1, 2, 3 ORDER BY 1, 2, 3
     """).fetchdf()
-    #09-07: too see smallest geographical unit, added locality x year crosswalk; the county is the modal county among the locality's permits, year_first/year_last are the locality's span
+    # locality x year: the county is the modal county among the locality's permits; year_first/year_last are its span
     locality = con.execute("""
         WITH modal AS (
             SELECT state, locality, arg_max(countycode, n) AS countycode
@@ -105,7 +116,7 @@ def main():
         WHERE ly.locality IS NOT NULL ORDER BY 1, 2, 3
     """).fetchdf()
 
-    for frame in (county, zipc, locality):   # 09-07: locality added
+    for frame in (county, zipc, locality):
         frame["year"] = frame["year"].astype("int16")
         frame["builty_n_permits"] = frame["builty_n_permits"].astype("int32")
     for column in ("year_first", "year_last"):  
@@ -119,6 +130,9 @@ def main():
         "builty_n_localities": "Builty localities with permits",
         "builty_covered": f"County-year has a Builty permit feed (>= {MIN_PERMITS} permits)",
         "builty_share_peak": "Permits as a share of the county's peak year",
+        "attom_n_sf": "ATTOM single-family homes in county",
+        "builty_per_100": "Builty permits per 100 ATTOM single-family homes",
+        "builty_covered_strict": f"County-year has >= {args.floor:g} Builty permits per 100 homes",
         "locality": "Permit-issuing locality (Builty LOCALITY)",
         "year_first": "First year the locality reports permits",
         "year_last": "Last year the locality reports permits",
@@ -127,12 +141,12 @@ def main():
                     variable_labels={k: v for k, v in labels.items() if k in county})
     zipc.to_stata(data / "clean" / "builty_coverage_zip.dta", write_index=False,
                   variable_labels={k: v for k, v in labels.items() if k in zipc})
-    #09-07: locality added
     locality.to_stata(data / "clean" / "builty_coverage_locality.dta", write_index=False, version=118,
                       variable_labels={k: v for k, v in labels.items() if k in locality})
 
     covered = county[county.builty_covered == 1]
-    print(f"county-years: {len(county):,} ({len(covered):,} covered); "
+    print(f"county-years: {len(county):,} ({len(covered):,} covered, "
+          f"{int(county.builty_covered_strict.sum()):,} strictly); "
           f"counties covered in any year: {covered.countycode.nunique():,}; "
           f"zip-years: {len(zipc):,}; locality-years: {len(locality):,} "   
           f"({locality.groupby('state').locality.nunique().sum():,} localities)")
