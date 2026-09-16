@@ -13,12 +13,11 @@ args data output
 * -----------------------------------------------------------------------------
 
 * Shared log dollar axis from a $1k display floor: below it are fees, document lines and
-* property-count errors, not costs or losses. No ceiling.
-local dollars `=ln(1000)' "1k" `=ln(10000)' "10k" `=ln(100000)' "100k" ///
-    `=ln(1000000)' "1m" `=ln(10000000)' "10m" `=ln(100000000)' "100m"
-local dollars_xy `=ln(1000)' "1k" `=ln(10000)' "10k" `=ln(100000)' "100k" `=ln(1000000)' "1m" `=ln(10000000)' "10m"
+* property-count errors, not costs or losses. No ceiling: the largest cumulative claim on the
+* panel is $1.3m once payouts are capped at coverage upstream.
+local dollars `=ln(1000)' "1k" `=ln(10000)' "10k" `=ln(100000)' "100k" `=ln(1000000)' "1m" `=ln(10000000)' "10m"
 local bars percent width(0.5)
-local xaxis xscale(range(`=ln(1000)' `=ln(100000000)')) xlabel(`dollars', labsize(medlarge) nogrid) ///
+local xaxis xscale(range(`=ln(1000)' `=ln(10000000)')) xlabel(`dollars', labsize(medlarge) nogrid) ///
     graphregion(color(white)) plotregion(color(white))
 local axis `xaxis' yscale(range(0 25)) ylabel(0(5)25, labsize(medlarge) nogrid) ///
     ytitle("Percent of properties", size(medlarge))
@@ -73,8 +72,8 @@ qui count if !mi(ln_cost) & !mi(ln_claim_pre) & ln_cost > ln_claim_pre
 local n_above = string(r(N), "%12.0fc")
 twoway (function y = x, range(`=ln(1000)' `=ln(10000000)') lcolor(gs8) lpattern(dash)) ///
        (scatter ln_cost ln_claim_pre, msize(small) mcolor("`blue'%50")), ///
-    xscale(range(`=ln(1000)' `=ln(10000000)')) xlabel(`dollars_xy', labsize(medlarge) nogrid) ///
-    yscale(range(`=ln(1000)' `=ln(10000000)')) ylabel(`dollars_xy', labsize(medlarge) nogrid) ///
+    xscale(range(`=ln(1000)' `=ln(10000000)')) xlabel(`dollars', labsize(medlarge) nogrid) ///
+    yscale(range(`=ln(1000)' `=ln(10000000)')) ylabel(`dollars', labsize(medlarge) nogrid) ///
     aspectratio(1) graphregion(color(white)) plotregion(color(white)) ///
     xtitle("Cumulative NFIP claims paid before elevation (2023 \$)", size(medlarge)) ///
     ytitle("Elevation cost (2023 \$)", size(medlarge)) legend(off)
