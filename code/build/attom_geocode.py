@@ -1,7 +1,8 @@
 """
 Authors: Anna Li
 Original Date: 2026-07-15
-Revised Date: 2026-08-16
+Revised Date: 2026-09-21: 
+Revision: alternate copy of build/attom_geocode.py carrying censusblockgroupfips2010.
 
 Builds the geocoded ATTOM panel: one row per property per tax year, carrying
 the property's characteristics, its values, and the census block group that
@@ -67,6 +68,8 @@ def fan_blockgroups(work: Path, out_base: Path) -> None:
     # which properties sit at which address, so join them to get block groups per property
     xwalk = pd.read_parquet(work / "attomid_xwalk.parquet")
     link = pd.read_parquet(work / "blockgroups_by_address.parquet")
+    # 2010-geography block group from the geocoder's second pass; nfip_attom.py matches on either vintage
+    link = link.merge(pd.read_parquet(work / "blockgroups_by_address_2010.parquet"), on="addrid", how="left")
 
     properties = xwalk.merge(link, on="addrid", how="left").drop(columns=["addrid"])
 
@@ -132,6 +135,7 @@ def join_attom(parquet: Path, link_file: Path, out: Path, sample: int, memory: s
             -- finally attach the block group and coordinates to every property-year
             SELECT p.*,
                    coalesce(b.censusblockgroupfips, '') AS censusblockgroupfips,
+                   coalesce(b.censusblockgroupfips2010, '') AS censusblockgroupfips2010,
                    coalesce(b.match, '') AS geocode_match,
                    b.longitude, b.latitude
             FROM with_prior p

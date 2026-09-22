@@ -1,7 +1,7 @@
 """
 Authors: Anna Li
 Original Date: 2026-08-14
-Revised Date: 2026-09-15
+Revised Date: 2026-09-21
 
 Pairs each NFIP-insured property with one ATTOM property, so the insurance
 records pick up a property value and a Builty elevation flag.
@@ -20,7 +20,8 @@ Note: this is not cumulative. Cumulative was done only for diagnostics.
 09-06: ATTOM block-group falls back to Builty info when ATTOM's own geocoding info fails
 09-06: add in also the new-construction/back-fill retrofit flags of builty
 09-12: add in also the project value and funding type of builty
-09-15 (Claude change): value lookup is a filtered join, not a per-property subquery
+09-15 : value lookup is a filtered join, not a per-property subquery
+09-21; block-group try two Census vintages, as NFIP uses both
 """
 
 from __future__ import annotations
@@ -65,6 +66,9 @@ TIERS = [
 # last resort, added after LA -- construction year mostly missing there
 TIER_15 = (["blockgroup_key", "flood_zone_key"], "15_bg_zone_no_construction")
 
+# NFIP homes first insured before this year carry 2010-geography block groups, later ones 2020
+VINTAGE_SWITCH_YEAR = 2021 
+
 # columns a match fills in, and their types
 ASSIGNMENT_COLUMNS = {
     "nfip_attom_merge_status": "integer default 1", "match_tier": "varchar",
@@ -85,6 +89,8 @@ ASSIGNMENT_COLUMNS = {
     "builty_built_at_permit": "integer",   # 09-07: permit year within a year of ATTOM year built
     # 09-12: builty cost and funding source
     "builty_project_value": "double", "builty_funding_type": "integer",
+    "blockgroup_vintage_used": "varchar",   # 09-21: which ATTOM block-group vintage the cell used
+    "nfip_alive_at_permit": "integer",      # 09-22: 1 = insured in the permit year, 0 = not, NULL = no permit house in the cell
     "attom_value_year": "integer", "attom_value_lag": "integer",
     **{f"attom_{c}": "double" for c in VALUE_COLUMNS},
 }
@@ -160,7 +166,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def load_properties(path: str, state: str) -> pd.DataFrame:
+def load_properties(path: str, state: str) -> pd.DataFrame: 
     # one row per NFIP property as of its first policy year, built by
     # prep_nfip_policies.do (Section 2). All states in one file; filter to this one.
     columns = ["property_id", "property_id_state", "state", "construction_year",
@@ -178,6 +184,10 @@ def load_properties(path: str, state: str) -> pd.DataFrame:
     frame["zip_key"] = norm(frame["zipcode"], 5)
     frame["county_key"] = norm(frame["countycode"], 5)
     frame["blockgroup_key"] = norm(frame["censusblockgroupfips"], 12)
+    # 09-21: which ATTOM vintage to try first (see module docstring)
+    init = pd.to_numeric(frame["policy_year_init"], errors="coerce")
+    frame["blockgroup_vintage_pref"] = pd.Series(
+        ["2010" if (y == y and y < VINTAGE_SWITCH_YEAR) else "2020" for y in init], index=frame.index, dtype="string")
     frame["community_key"] = norm(frame["nfipratedcommunitynumber"], 6)
     frame["construction_year"] = to_year(frame["construction_year"], "construction_year").astype("Int64")
     frame["construction_5yr"] = (frame["construction_year"] // 5) * 5
@@ -191,6 +201,16 @@ def load_properties(path: str, state: str) -> pd.DataFrame:
     frame["reference_year"] = to_year(
         frame["matching_policy_year"], "matching_policy_year"
     ).astype("Int64")
+
+    # last policy year, for the permit-aware ranking: nfip_policy_years.parquet sits beside the properties file
+    ly = pd.read_parquet(Path(path).with_name("nfip_policy_years.parquet"))
+    ly = ly.loc[ly["state"].str.upper() == state.upper(), ["property_id_state", "policy_year_last"]]
+    ly["property_id_state"] = pd.to_numeric(ly["property_id_state"], errors="coerce")
+    frame["property_id_state"] = pd.to_numeric(frame["property_id_state"], errors="coerce")
+    frame = frame.merge(ly.drop_duplicates("property_id_state"), on="property_id_state", how="left")
+    frame["policy_year_last"] = frame["policy_year_last"].astype("Int64")
+    print(f"{state}: last policy year known for {frame['policy_year_last'].notna().mean():.1%} of properties")
+    frame["policy_year_init_num"] = to_year(frame["policy_year_init"], "policy_year_init").astype("Int64")
     return frame
 
 
@@ -224,7 +244,8 @@ def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
                  max(nullif(trim(cast(property_use_std AS varchar)),'')) property_use_std,
                  max(nullif(trim(cast(zip AS varchar)),'')) zip_key,
                  max(nullif(trim(cast(countycode AS varchar)),'')) county_key,
-                 max(nullif(trim(cast(censusblockgroupfips AS varchar)),'')) blockgroup_key
+                 max(nullif(trim(cast(censusblockgroupfips AS varchar)),'')) blockgroup_key,
+                 max(nullif(trim(cast(censusblockgroupfips2010 AS varchar)),'')) blockgroup_key_2010  
           FROM read_parquet({q(attom)})
           WHERE {use_code_filter(use_codes)}
           GROUP BY 1
@@ -266,9 +287,16 @@ def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
     """)
 
 
-def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier: int) -> None:
+def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier: int,
+               bg_vintage: str | None = None, nfip_pref: str | None = None) -> int:
+    # 09-21: a block-group tier runs once per (NFIP preferred vintage, ATTOM vintage) pair.
+    # bg_vintage picks which ATTOM code stands in for blockgroup_key; nfip_pref restricts
+    # the NFIP side to homes that prefer a given vintage. Both None = the plain tier.
     ks = ", ".join(keys)
     valid = " AND ".join(f"{k} IS NOT NULL" for k in keys)
+    attom_src = ("(SELECT * EXCLUDE(blockgroup_key), blockgroup_key_2010 AS blockgroup_key FROM attom)"
+                 if bg_vintage == "2010" else "attom")
+    nfip_where = f" AND blockgroup_vintage_pref = {q(nfip_pref)}" if nfip_pref else ""
 
     # cell sizes on both sides, before this tier takes anything.
     # inner join keeps only cells with an unmatched NFIP property and a free ATTOM one
@@ -277,12 +305,14 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
         CREATE TEMP TABLE cell_stats AS
         WITH n AS (
           SELECT {ks}, count(*) nfip_cell_n FROM nfip
-          WHERE nfip_attom_merge_status=1 AND {valid} GROUP BY {ks}
+          WHERE nfip_attom_merge_status=1 AND {valid}{nfip_where} GROUP BY {ks}
         ), a AS (
-          SELECT {ks}, count(*) attom_cell_n, sum((builty_elevated=1)::integer) builty_attom_cell_n
-          FROM attom WHERE assigned=false AND {valid} GROUP BY {ks}
+          SELECT {ks}, count(*) attom_cell_n, sum((builty_elevated=1)::integer) builty_attom_cell_n,
+                 -- 09-22: the cell's permit year (earliest, if several permit houses)
+                 min(CASE WHEN builty_elevated=1 THEN builty_elevation_year END) permit_year
+          FROM {attom_src} WHERE assigned=false AND {valid} GROUP BY {ks}
         )
-        SELECT n.*, a.attom_cell_n, a.builty_attom_cell_n,
+        SELECT n.*, a.attom_cell_n, a.builty_attom_cell_n, a.permit_year,
                {q(label)}||'|'||md5(concat_ws('|',{ks})) match_cell_id,
                (n.nfip_cell_n=1 AND a.attom_cell_n=1)::integer cell_singleton
         FROM n INNER JOIN a USING({ks})
@@ -295,12 +325,21 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
     con.execute(f"""
         CREATE TEMP TABLE tier_hits AS
         WITH nr AS (
+          -- 09-22: in a cell with a permit house, homes insured in the permit year rank first
+          -- (they pair with the permit house, which ranks first on the ATTOM side), then homes
+          -- built by the permit year, then the hash order
           SELECT n.property_id, {ks}, s.match_cell_id, s.nfip_cell_n, s.attom_cell_n,
                  s.builty_attom_cell_n, s.cell_singleton,
+                 CASE WHEN s.permit_year IS NULL THEN NULL
+                      WHEN n.policy_year_init_num <= s.permit_year
+                       AND coalesce(n.policy_year_last, 9999) >= s.permit_year THEN 1 ELSE 0 END alive_at_permit,
                  row_number() over(partition by {ks}
-                   order by md5(s.match_cell_id||'|nfip|fixed_seed|'||cast(n.property_id as varchar))) cell_rank
+                   order by CASE WHEN s.permit_year IS NOT NULL AND n.policy_year_init_num <= s.permit_year
+                                  AND coalesce(n.policy_year_last, 9999) >= s.permit_year THEN 0 ELSE 1 END,
+                            CASE WHEN s.permit_year IS NOT NULL AND n.construction_year <= s.permit_year THEN 0 ELSE 1 END,
+                            md5(s.match_cell_id||'|nfip|fixed_seed|'||cast(n.property_id as varchar))) cell_rank
           FROM nfip n INNER JOIN cell_stats s USING({ks})
-          WHERE n.nfip_attom_merge_status=1 AND {valid}
+          WHERE n.nfip_attom_merge_status=1 AND {valid}{nfip_where}
         ), ar AS (
           SELECT a.* EXCLUDE({ks}), {ks},
                  a.flood_zone_key assigned_flood_zone_key,
@@ -308,11 +347,11 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
                  row_number() over(partition by {ks}
                    order by a.builty_elevated desc,
                             md5(s.match_cell_id||'|attom|fixed_seed|'||a.attomid)) cell_rank
-          FROM attom a INNER JOIN cell_stats s USING({ks})
+          FROM {attom_src} a INNER JOIN cell_stats s USING({ks})
           WHERE a.assigned=false AND {valid}
         )
         SELECT nr.property_id, nr.match_cell_id, nr.nfip_cell_n, nr.attom_cell_n,
-               nr.builty_attom_cell_n, nr.cell_singleton,
+               nr.builty_attom_cell_n, nr.cell_singleton, nr.alive_at_permit,
                nr.cell_rank nfip_cell_rank, ar.cell_rank attom_cell_rank,
                ar.* EXCLUDE({ks}, cell_rank)
         FROM nr INNER JOIN ar USING({ks}, cell_rank)
@@ -340,6 +379,8 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
         "builty_geo_backfilled=h.builty_geo_backfilled",
         "builty_built_at_permit=h.builty_built_at_permit",
         "builty_project_value=h.builty_project_value", "builty_funding_type=h.builty_funding_type",
+        f"blockgroup_vintage_used={q(bg_vintage) if bg_vintage else 'NULL'}",
+        "nfip_alive_at_permit=h.alive_at_permit",
     ]
     con.execute(f"UPDATE nfip n SET {','.join(assignments)} FROM tier_hits h WHERE n.property_id=h.property_id")
 
@@ -348,15 +389,14 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
 
     # Report progress; diagnostic tables are generated separately.
     assigned = con.execute("SELECT count(*) FROM tier_hits").fetchone()[0]
-    print(f"{label:<38} {assigned:>10,}")
+    print(f"{label:<38} {'pref ' + nfip_pref + ' on ATTOM ' + bg_vintage if bg_vintage else '':<28} {assigned:>10,}")
+    return assigned
 
 
 def attach_values(con: duckdb.DuckDBPyConnection, attom: str) -> None:
     # value each property: latest ATTOM assessment at or before its matched
     # policy year. unmatched come back blank
-    # Claude change 09-15: was a correlated LATERAL subquery, one probe of the whole
-    # property x year panel per NFIP property. Now the panel is read once, cut to the
-    # assigned IDs, joined, and a window keeps the latest eligible year: same rows,
+    # 09-15:  panel is read once, cut to the  assigned IDs, joined, and a window keeps the latest eligible year: same rows,
     # but it streams under a small memory cap instead of holding the panel
     con.execute(f"""
         CREATE TABLE final AS
@@ -389,6 +429,7 @@ def main() -> None:
 
     # NFIP properties for this state
     properties = load_properties(args.properties, state)
+    print(f"{state}: block-group vintage preference: {properties['blockgroup_vintage_pref'].value_counts().to_dict()}")
     print(f"{state}: {len(properties):,} NFIP properties")
 
     con = duckdb.connect()
@@ -412,7 +453,14 @@ def main() -> None:
     # down the ladder; each tier only sees leftovers
     tiers = TIERS + [TIER_15] if args.add_tier_15 else list(TIERS)
     for number, (keys, label) in enumerate(tiers, start=1):
-        apply_tier(con, keys, label, number)
+        if "blockgroup_key" in keys:
+            # preferred vintage for each side first, then the other vintage as fallback
+            total = 0
+            for nfip_pref, bg_vintage in (("2010", "2010"), ("2020", "2020"), ("2010", "2020"), ("2020", "2010")):
+                total += apply_tier(con, keys, label, number, bg_vintage=bg_vintage, nfip_pref=nfip_pref)
+            print(f"{label:<38} {total:>10,}")
+        else:
+            apply_tier(con, keys, label, number)
 
     attach_values(con, args.attom)
 

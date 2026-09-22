@@ -1,11 +1,14 @@
 """
 Authors: Anna Li
 Date: 2026-08-08
+Revision 09-21: alternate copy of prepare/geocode_attom.py with the 2010-geography second pass.
 
 Geocoding attom addresses. Clean the ATTOM addresses, drop duplicates, and send the
 unique addresses to the Census batch geocoder. Output one file per state with the
 matched block group and coordinates.
 Desired variables are censusblockgroupfips, longitude, latitude. The output is used to merge the ATTOM.
+A second pass writes the 2010-geography block group (censusblockgroupfips2010) beside it,
+because the NFIP file mixes 2010 and 2020 codes (2026-09-21).
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ import pandas as pd
 import requests
 
 BATCH_URL = "https://geocoding.geo.census.gov/geocoder/geographies/addressbatch"
+VINTAGE_2010 = "Census2010_Current"  # second pass: the NFIP file mixes 2010 and 2020 block groups. 
 
 # Census batch return columns (no header in the response CSV); id is addrid.
 RESULT_COLS = [
@@ -223,7 +227,7 @@ def preflight(chunk_dir: Path, work: Path, benchmark: str, vintage: str) -> None
     print(f"Preflight probe ok: HTTP {r.status_code}, {n} result rows")
 
 
-def combine_results(result_dir: Path) -> pd.DataFrame:
+def combine_results(result_dir: Path, column: str = "censusblockgroupfips") -> pd.DataFrame:
     # combine chunk outputs into one addrid-level file
     frames = [pd.read_csv(f, names=RESULT_COLS, usecols=USE_COLS, dtype=str, on_bad_lines="skip")
               for f in sorted(result_dir.glob("chunk_*_out.csv"))]
@@ -243,16 +247,23 @@ def combine_results(result_dir: Path) -> pd.DataFrame:
     keep = res[["id", "match", "match_type", "censusblockgroupfips", "longitude", "latitude"]].copy()
     for c in ["id", "match", "match_type", "censusblockgroupfips"]:
         keep[c] = keep[c].fillna("").astype(str)
-    return (keep.sort_values(["id", "censusblockgroupfips"], ascending=[True, False])
+    keep = (keep.sort_values(["id", "censusblockgroupfips"], ascending=[True, False])
                 .drop_duplicates(subset="id", keep="first")
                 .reset_index(drop=True)
                 .rename(columns={"id": "addrid"}))
+    if column != "censusblockgroupfips":
+        # a secondary vintage carries only its block group; coordinates come from the main pass
+        keep = keep.loc[keep["censusblockgroupfips"] != "", ["addrid", "censusblockgroupfips"]]
+        keep = keep.rename(columns={"censusblockgroupfips": column})
+    return keep
 
 #break address list into Census-sized chunks and merge back to one file for output
 def geocode(addrs: pd.DataFrame, work: Path, benchmark: str, vintage: str,
-            chunk_size: int, workers: int, timeout: int) -> None:
+            chunk_size: int, workers: int, timeout: int,
+            result_dir: Path | None = None, column: str = "censusblockgroupfips",
+            out_name: str = "blockgroups_by_address.parquet") -> None:
     chunk_dir = work / "chunks"
-    result_dir = work / "results"
+    result_dir = result_dir or work / "results"
 
     chunks = write_chunks(addrs, chunk_dir, min(chunk_size, 10000))
     print(f"Batches: {len(chunks)} (benchmark={benchmark}, vintage={vintage})")
@@ -291,11 +302,11 @@ def geocode(addrs: pd.DataFrame, work: Path, benchmark: str, vintage: str,
               f"({failed} failed this run, {pruned} pruned as corrupt).")
         return
 
-    res = combine_results(result_dir)
-    n_match = (res["censusblockgroupfips"] != "").sum()
+    res = combine_results(result_dir, column)
+    n_match = (res[column] != "").sum()
     print(f"Geocoded {n_match:,} / {len(res):,} unique addresses to a block group "
-          f"({n_match / max(len(res), 1):.1%})")
-    out = work / "blockgroups_by_address.parquet"
+          f"({n_match / max(len(res), 1):.1%}; vintage {vintage})")
+    out = work / out_name
     res.to_parquet(out, index=False)
     print(f"Saved: {out}")
 
@@ -325,6 +336,12 @@ def main() -> None:
     # geocode the unique addresses
     geocode(addrs, work, args.benchmark, args.vintage,
             args.chunk_size, args.workers, args.timeout)
+
+    # second pass, 2010 geography: same addresses and benchmark, results kept apart
+    geocode(addrs, work, args.benchmark, VINTAGE_2010,
+            args.chunk_size, args.workers, args.timeout,
+            result_dir=work / "results_2010", column="censusblockgroupfips2010",
+            out_name="blockgroups_by_address_2010.parquet")
 
 
 if __name__ == "__main__":
