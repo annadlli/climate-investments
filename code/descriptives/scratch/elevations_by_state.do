@@ -1,7 +1,7 @@
 /******************************************************************************
 Author: Anna Li
 Date: 2026-09-05 
-Revised： 2026-09-15
+Revised： 2026-09-22
 
 Description: Home-elevation retrofits by state, properties not projects, in
     Builty, in FEMA HMA (all programs, HMGP, FMA incl. SRL) and in NFIP, for the
@@ -23,14 +23,31 @@ local opts graphregion(color(white)) plotregion(color(white))
 * -----------------------------------------------------------------------------
 
 * HMA: properties per record summed by state and program (clean_fma keeps all programs)
-use state programarea n_properties_rec using "`data'/clean/fma_elevation.dta", clear
+// 09-20: reads hma_elevation.dta (the 09-15 name) and adds a closed-projects-only count
+// (optional variant, not in the pipeline; status comes from the raw projects file)
+use state programarea project_identifier n_properties_rec using "`data'/clean/hma_elevation.dta", clear
+// Project status from the raw HMA projects file (the clean file does not carry it)
+preserve
+    import delimited "`data'/raw/HazardMitigationAssistanceProjects.csv", varnames(1) case(lower) stringcols(_all) bindquote(strict) clear
+    keep projectidentifier status
+    gen str100 project_identifier = projectidentifier // import gives a strL, which cannot be a merge key
+    drop projectidentifier
+    duplicates drop project_identifier, force
+    tempfile hma_status
+    save `hma_status'
+restore
+merge m:1 project_identifier using `hma_status', keep(1 3) nogen keepusing(status)
+gen closed = status == "Closed"
 gen program = "Other"
 replace program = "FMA"  if inlist(programarea, "FMA", "SRL")
 replace program = "HMGP" if programarea == "HMGP"
-collapse (sum) n_properties_rec, by(state program)
-reshape wide n_properties_rec, i(state) j(program) string
+gen n_closed = n_properties_rec * closed
+collapse (sum) n_properties_rec n_closed, by(state program)
+reshape wide n_properties_rec n_closed, i(state) j(program) string
 rename (n_properties_recFMA n_properties_recHMGP n_properties_recOther) (hma_fma hma_hmgp hma_other)
-foreach var in hma_fma hma_hmgp hma_other {
+gen hma_closed = n_closedFMA + n_closedHMGP + n_closedOther
+drop n_closed*
+foreach var in hma_fma hma_hmgp hma_other hma_closed {
     replace `var' = 0 if mi(`var')
 }
 gen hma_total = hma_fma + hma_hmgp + hma_other
@@ -49,6 +66,20 @@ collapse (sum) nfip_flip nfip_icc nfip_any, by(state)
 rename state state_abbrev
 tempfile nfip
 save `nfip'
+
+* Analysis sample: elevation events per insured home, by state  -- 09-16 (Vendela 09-15)
+// analysis.dta after complete.do's restrictions: SFHA homes in FL LA TX, county-years with
+// Builty coverage. Events are the harmonized elevation (Builty permit; NFIP flag flip; ICC
+// payment with continued coverage). Source 3 = Builty, 1 = NFIP flip, 2 = ICC.
+use state property_id elevation_retrofit elevation_source using "`data'/analysis/analysis.dta", clear
+bysort state property_id: keep if _n == 1
+gen byte ev_builty = elevation_source == 3
+gen byte ev_nfip   = inlist(elevation_source, 1, 2)
+collapse (count) an_homes = property_id (sum) an_events = elevation_retrofit an_builty = ev_builty an_nfip = ev_nfip, by(state)
+gen an_per_1000 = 1000 * an_events / an_homes
+rename state state_abbrev
+tempfile asample
+save `asample'
 
 * Builty: every state file in clean/builty_states, collapsed to one row per property
 // Note: the appended clean/builty_elevations.dta covers only master.do's states, so the
@@ -85,7 +116,7 @@ assert state != ""
 
 * Combine: one row per state
 merge 1:1 state using `hma', nogen
-foreach var in builty hma_total hma_hmgp hma_fma hma_other {
+foreach var in builty hma_total hma_hmgp hma_fma hma_other hma_closed {
     replace `var' = 0 if mi(`var')
 }
 local i = 1
@@ -98,13 +129,28 @@ merge 1:1 state_abbrev using `nfip', nogen // 09-15
 foreach var in nfip_any nfip_flip nfip_icc {
     replace `var' = 0 if mi(`var')
 }
+merge 1:1 state_abbrev using `asample', nogen // 09-16: analysis-sample columns, missing outside FL LA TX
+// 09-20: every count as a share of the state's properties in analysis.dta
+// (the final analysis sample; missing outside FL LA TX)
+foreach var in builty hma_total hma_hmgp hma_fma hma_closed nfip_any an_events {
+    gen sh_`var' = `var' / an_homes
+}
 gsort -hma_total
-order state state_abbrev builty hma_total hma_hmgp hma_fma hma_other nfip_any nfip_flip nfip_icc
+order state state_abbrev builty hma_total hma_closed hma_hmgp hma_fma hma_other nfip_any nfip_flip nfip_icc ///
+    an_homes an_events an_builty an_nfip an_per_1000 sh_builty sh_hma_total sh_hma_hmgp sh_hma_fma sh_hma_closed sh_nfip_any sh_an_events
 
 * Label variables
 label var state        "State"
 label var state_abbrev "State"
 label var builty       "Builty elevation retrofits (properties)"
+label var hma_closed   "FEMA HMA elevations, closed (completed) projects only (properties)"
+label var sh_builty    "Builty properties / analysis-sample properties"
+label var sh_hma_total "HMA properties / analysis-sample properties"
+label var sh_hma_closed "HMA closed-project properties / analysis-sample properties"
+label var sh_hma_hmgp  "HMGP properties / analysis-sample properties"
+label var sh_hma_fma   "FMA + SRL properties / analysis-sample properties"
+label var sh_nfip_any  "NFIP elevations / analysis-sample properties"
+label var sh_an_events "Analysis-sample elevation events / analysis-sample properties"
 label var hma_total    "HMA elevations, all programs (properties)"
 label var hma_hmgp     "HMGP elevations (properties)"
 label var hma_fma      "FMA + SRL elevations (properties)"
@@ -112,9 +158,35 @@ label var hma_other    "Other HMA programs (properties)"
 label var nfip_any     "NFIP elevations: flag flip or ICC payment (properties)" 
 label var nfip_flip    "NFIP elevated flag flips 0 to 1 (properties)"
 label var nfip_icc     "NFIP ICC payment received (properties)"
+label var an_homes     "Analysis sample: insured SFHA homes (properties)"
+label var an_events    "Analysis sample: elevation events, any source (properties)"
+label var an_builty    "Analysis sample: Builty permit events (properties)"
+label var an_nfip      "Analysis sample: NFIP flip or ICC events (properties)"
+label var an_per_1000  "Analysis sample: elevation events per 1,000 insured homes"
 
 * Output table
 export excel using "`output'/tables/elevations_by_state.xlsx", firstrow(varlabels) replace
+
+* Second table (09-22, Anna): count and share of the state's analysis-sample properties in one
+* cell, "1,568 (0.26%)", for the three analysis states only (the base exists nowhere else)
+preserve
+    keep if !mi(an_homes)
+    foreach var in builty hma_total hma_hmgp hma_fma hma_closed nfip_any an_events {
+        gen str30 fmt_`var' = string(`var', "%12.0fc") + " (" + string(100 * sh_`var', "%4.2f") + "%)"
+    }
+    gen str12 fmt_an_homes = string(an_homes, "%12.0fc")
+    keep state fmt_an_homes fmt_builty fmt_hma_total fmt_hma_hmgp fmt_hma_fma fmt_hma_closed fmt_nfip_any fmt_an_events
+    order state fmt_an_homes fmt_builty fmt_hma_total fmt_hma_hmgp fmt_hma_fma fmt_hma_closed fmt_nfip_any fmt_an_events
+    label var fmt_an_homes  "Analysis sample: insured SFHA homes"
+    label var fmt_builty    "Builty elevation retrofits (share of homes)"
+    label var fmt_hma_total "HMA elevations, all programs (share of homes)"
+    label var fmt_hma_hmgp  "HMGP elevations (share of homes)"
+    label var fmt_hma_fma   "FMA + SRL elevations (share of homes)"
+    label var fmt_hma_closed "HMA closed-project elevations (share of homes)"
+    label var fmt_nfip_any  "NFIP flag flip or ICC payment (share of homes)"
+    label var fmt_an_events "Analysis-sample elevation events, any source (share of homes)"
+    export excel using "`output'/tables/elevations_by_state_shares.xlsx", firstrow(varlabels) replace
+restore
 
 * Figure: sample states only, sorted by HMA total, largest on top
 gen byte sample = 0

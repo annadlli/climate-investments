@@ -1,100 +1,90 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-09-15
+Date: 2026-09-21
+Revised: 2026-09-22
 
-Description: Summary statistics table for the analysis dataset. 
+Description: Summary statistics table (deck and paper): one row per statistic, All /
+    Pre-FIRM / Post-FIRM columns, on the analysis dataset (NFIP-insured single-family
+    homes in SFHAs, FL LA TX, 2009-2025). Premium, loss ratio and the claim share are
+    over property-years; the rest over properties. Runs from master.do (summary_table
+    switch). 09-22: was descriptives/scratch/summary_table_slides.do; the earlier means
+    table is archived as descriptives/archive/summary_table_means.do.
 
 ******************************************************************************/
 
 args data output
 
-* Set table options
-local vars policy_year_first policy_years sfha post_firm primary_residence ///
-    premium_first premium_last ///
-    any_claim claim_cb claim_cb_claimant claim_to_value claim_over_value ///
-    rl srl ///
-    attom_matched attom_value ///
-    elevated elevation_retrofit elevation_cost ///
-    hma_n_properties hma_spend
-// N is reported for All only; each stat is repeated per group
-local stats mean
-local groups all pre_firm post_firm
-
+* -----------------------------------------------------------------------------
+* Section 1: Property-year statistics
 * -----------------------------------------------------------------------------
 
-* Import data and collapse to one row per property
-// the panel is property x policy-year; keep each property's last year (cumulative claims = property total) and carry first/last premium
-use property_id policy_year sfha post_firm primary_residence premium ///
-    cumulative_claims rl srl attom_matched attom_value ///
-    elevated elevation_retrofit elevation_cost ///
-    hma_n_properties hma_spend using "`data'/analysis/analysis.dta", clear
-bysort property_id (policy_year): gen policy_year_first = policy_year[1]
-bysort property_id (policy_year): gen premium_first = premium[1]
-bysort property_id (policy_year): gen policy_years = _N
-bysort property_id (policy_year): keep if _n == _N
-rename (cumulative_claims premium) (claim_cb premium_last)
-count
-local properties = r(N)
-
-* Create derived variables
-gen any_claim = claim_cb > 0 & !mi(claim_cb)
-gen claim_cb_claimant = claim_cb if any_claim
-gen claim_to_value = claim_cb / attom_value if any_claim
-gen claim_over_value = claim_to_value > 1 if !mi(claim_to_value)
-
-* Group indicators
-// post_firm is constant within property, so the last year's value is the property's
+use property_id policy_year post_firm premium claim cumulative_claims rl srl elevated ///
+    elevation_retrofit elevation_year elevation_cost property_value ///
+    using "`data'/analysis/analysis.dta", clear
+gen any_claim = claim > 0 & !mi(claim)
 gen all = 1
 gen pre_firm = post_firm == 0
+local groups all pre_firm post_firm
 
-* Tabulate statistics
-// columns: N, then each stat for each group (mean_all mean_pre_firm mean_post_firm)
-local nvars : word count `vars'
-local nstats : word count `stats'
-local ngroups : word count `groups'
-local ncols = 1 + `nstats' * `ngroups'
-mat M = J(`nvars', `ncols', .)
-local colnames N
+mat S = J(11, 3, .)
+local j = 1
 foreach g of local groups {
-    foreach stat of local stats {
-        local colnames `colnames' `stat'_`g'
-    }
-}
-local i = 1
-foreach var of local vars {
-    qui sum `var', detail
-    mat M[`i', 1] = r(N)
-    local j = 2
-    foreach g of local groups {
-        qui sum `var' if `g' == 1, detail
-        foreach stat of local stats {
-            // summarize has no r(se)
-            if "`stat'" == "se" mat M[`i', `j'] = r(sd) / sqrt(r(N))
-            else mat M[`i', `j'] = r(`stat')
-            local j = `j' + 1
-        }
-    }
-    local i = `i' + 1
+    // premium: median over property-years with a positive premium
+    qui sum premium if `g' & premium > 0, detail
+    mat S[1, `j'] = r(p50)
+    // loss ratio: claims paid over premiums collected, both 2023 dollars
+    qui sum claim if `g'
+    local claims = r(sum)
+    qui sum premium if `g'
+    mat S[2, `j'] = `claims' / r(sum)
+    qui sum any_claim if `g'
+    mat S[3, `j'] = r(mean)
+    local j = `j' + 1
 }
 
-* Report the sample size once, by group
-// blank N where it equals the full count; the bottom row carries the property count per group
-forvalues r = 1/`nvars' {
-    if M[`r', 1] == `properties' mat M[`r', 1] = .
-}
-mat R = J(1, `ncols', .)
-mat R[1, 1] = `properties'
-local j = 2
+* -----------------------------------------------------------------------------
+* Section 2: Property-level statistics
+* -----------------------------------------------------------------------------
+
+bysort property_id (policy_year): gen elevated_ex_ante = elevated[1] == 1 & ///
+    (mi(elevation_year) | policy_year[1] < elevation_year)
+bysort property_id (policy_year): keep if _n == _N
+gen claimant = cumulative_claims > 0 & !mi(cumulative_claims)
+
+local j = 1
 foreach g of local groups {
-    qui count if `g' == 1
-    mat R[1, `j'] = r(N)
-    local j = `j' + `nstats'
+    // cumulative claims: medians among claimants, then among repetitive-loss and
+    // severe-repetitive-loss claimants
+    qui sum cumulative_claims if `g' & claimant, detail
+    mat S[4, `j'] = r(p50)
+    qui sum cumulative_claims if `g' & claimant & rl == 1, detail
+    mat S[5, `j'] = r(p50)
+    qui sum cumulative_claims if `g' & claimant & srl == 1, detail
+    mat S[6, `j'] = r(p50)
+    // ATTOM value: median among matched properties
+    qui sum property_value if `g', detail
+    mat S[7, `j'] = r(p50)
+    // elevations: counts of properties; retrofit cost is the Builty declared value (FL, TX)
+    qui count if `g' & elevated_ex_ante
+    mat S[8, `j'] = r(N)
+    qui count if `g' & elevation_retrofit == 1
+    mat S[9, `j'] = r(N)
+    qui sum elevation_cost if `g' & elevation_cost > 0, detail
+    mat S[10, `j'] = r(p50)
+    qui count if `g'
+    mat S[11, `j'] = r(N)
+    local j = `j' + 1
 }
-mat M = M \ R
 
-* Output table
-matrix rownames M = `vars' N_properties
-matrix colnames M = `colnames'
-mat list M
+* -----------------------------------------------------------------------------
+* Section 3: Output
+* -----------------------------------------------------------------------------
+
+mat rownames S = premium_median claims_over_premiums any_claim_share ///
+    cum_claims_median_claimants cum_claims_median_rl cum_claims_median_srl ///
+    property_value_median elevated_ex_ante elevation_retrofit retrofit_cost_median n_properties
+mat colnames S = all pre_firm post_firm
+mat list S, format(%12.3f)
 putexcel set "`output'/tables/summary_table.xlsx", replace
-putexcel A1 = matrix(M), names
+putexcel A1 = "NFIP-insured single-family properties in SFHAs, FL LA TX, 2009-2025; 2023 dollars; premium, loss ratio and claim share over property-years, the rest over properties"
+putexcel A2 = matrix(S), names

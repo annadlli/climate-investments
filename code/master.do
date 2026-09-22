@@ -83,7 +83,8 @@ local summary_table                     = 0 // create summary statistics table
 local histograms                        = 1 // histograms of cumulative claims and elevation project cost
 
 // v) Analysis
-local es_prices_mitigation              = 0 // elevation discount + event studies: prices do not reward mitigation
+local es_elevation                      = 0 // event studies of premium and claims around the elevation permit, pooled and by source
+local same_flood_claims                 = 0 // claims of permitted homes before and after the permit vs never-elevated homes in the same flood; cost effectiveness
 
 * -----------------------------------------------------------------------------
 * Section 2: Run code    
@@ -196,6 +197,9 @@ if `histograms' == 1 {
 }
 
 // vi) Analysis
-if `es_prices_mitigation' == 1 {
-    do "`code'/analysis/es_prices_mitigation.do" "`data'" "`output'"
+if `es_elevation' == 1 { 
+    do "`code'/analysis/es_elevation.do" "`data'" "`output'"
+}
+if `same_flood_claims' == 1 {
+    do "`code'/analysis/same_flood_claims.do" "`data'" "`output'"
 }

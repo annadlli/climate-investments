@@ -51,12 +51,16 @@ rename (attomid year value) (assigned_attomid policy_year attom_value)
 * Section 3: Create new analysis variables
 * -----------------------------------------------------------------------------
 
-* Set Builty elevations to missing where unobservable
-replace builty_elevated = . if attom_matched != 1 | builty_merge != 3
+* Builty flag at the property level  -- 09-21
+bysort property_id: egen _ever_covered = max(builty_merge == 3)
+replace builty_elevated = . if attom_matched != 1 | _ever_covered == 0
+drop _ever_covered
 
 * Harmonize the sources into one elevation year: Builty permit, else NFIP flag flip, else ICC payment
 // Note: an ICC payment counts only if the property stays on the panel afterwards, since ICC also pays for demolition
 bysort property_id (policy_year): egen _last_year = max(policy_year)
+//09-21: a flag flip dated 2010 is the panel's first transition (2009 is the first policy year) and not an event
+replace nfip_flip = . if nfip_flip == 2010
 gen elevation_year = builty_elevation_year if builty_elevated == 1
 replace elevation_year = nfip_flip if mi(elevation_year)
 replace elevation_year = nfip_icc if mi(elevation_year) & nfip_icc < _last_year

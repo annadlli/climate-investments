@@ -57,20 +57,223 @@ execution is a thin wrapper in `slurm/` around the same script, never separate l
       numerator against a 2009+ denominator). Think through one funding measure that combines the
       Builty text cue, an ICC payment (NFIP money for the elevation) and county HMA exposure, and
       say what "self-financed" means against it. Ties to the unfunded-applications item below.
-- [ ] LA ATTOM valuation (09-15): the `market_value_total` field is far below market in several
+- [x] LA ATTOM valuation (09-15; checked 09-20, `notes/la_valuation_2026-09-20.md`: the market field is
+      ten times the assessed field in every large parish, so it is not an assessed-type figure; against
+      sale prices it runs 0.85 statewide, 0.69-0.77 in Caddo, Ouachita and Calcasieu, 0.88-0.95 in the
+      metro parishes. Keep `market_value_total`; blank the ratio-0.1 rows, mainly St. Helena 22091;
+      note the under-valuation in the appendix): the `market_value_total` field is far below market in several
       parishes. 2022 medians: Caddo $39k, Ouachita $32k, Rapides $40k, Calcasieu $61k, each with
       17-29% of properties under $10k nominal, against $123-147k in East Baton Rouge, Jefferson,
       Orleans, St. Tammany. Louisiana assesses residential property at 10% of market, so the field
       may carry an assessed-type figure in those parishes. The $10k floor is not the fix. Check
       `assessed_value_total` x 10 against `market_value_total` by parish and decide which to use
       for LA before any LA value result is shown. Statewide LA real median is $105k vs FL $190k, TX $170k.
-- [ ] Rerun in progress at end of day 09-15: clean_builty → geocode_builty → matching steps 3-4 for
+- [x] Rerun in progress at end of day 09-15 (done 09-19, see next item): clean_builty → geocode_builty → matching steps 3-4 for
       FL LA TX locally (`--from 3`, 8 GB) → `parquet_dta` → `complete` → `summary_table` →
       `histograms`. Everything upstream of the matching (HMA chain, claims, `merge_nfip_hma`, the
       value file) is rebuilt. Check the link-file dates, the value merge rate in the `complete` log,
       and the `elevated` / `elevation_retrofit` / `elevation_cost` rows of the summary table.
       `histograms.do` now also draws `claims_vs_elevation_cost.png` (cost against claims paid
       through the elevation year, 45-degree line); the two histograms keep a $1k display floor.
+- [x] Claude change 09-19: the 09-15 rerun landed. Matching steps 3-4 on the cluster for FL LA TX
+      (`FROM_STEP=3`, job 18028231, after `git pull` and copying up the 09-15 `builty_elevations_zipfilled.dta`):
+      permits matched FL 2,636 of 3,074 (86%), LA 1,547 of 1,675 (92%), TX 1,090 of 1,152 (95%);
+      NFIP properties with a Builty flag FL 1,913, LA 1,369, TX 941 (within 4 of the 09-14 files on
+      the same properties; ATTOM ids changed for 50 FL, 7 LA, 0 TX). The permit-type cost screen shows
+      in the links: FL valued permits 970 -> 626, median $227k -> $83k; TX 221 -> 195. The 09-14
+      link parquets are in `build/nfip_attom_pipeline_v2/tmp/links_0914/`, the cluster logs in
+      `tmp/logs/`. Locally `parquet_dta` -> `complete` -> `summary_table` -> `histograms` rerun:
+      links merge on every panel row, value on 29.0M of 34.8M rows; `analysis.dta` 16.6M rows
+      (unchanged). `summary_table.do` read `attom_value`, which `complete.do` renames to
+      `property_value` on 09-15; fixed to `property_value` (that is why the 09-15 21:00 table on
+      disk still showed the old names). `claims_vs_elevation_cost.png` drawn for the first time.
+      Summary table: `elevation_retrofit` 0.17%, `elevation_cost` N 538, mean $206k (no ceiling now;
+      panel medians FL $156k, TX $117k). `elevations_by_state.do`, `es_elevation.do` and
+      `empirical_facts_six_questions.do` rerun on the new panel the same evening: per-state rates
+      and the event-study coefficients are unchanged from 09-16/17 (FL Builty homes 1,315 -> 1,316,
+      events 2,284 -> 2,285; LA and TX identical); the NPV sheet moves only through the permit
+      valuation median, $213.9k -> $140.6k (new-construction values screened out), so NPV/cost
+      0.16 -> 0.24 and payback 74 -> 49 years in the same-flood version.
+- [x] Claude change 09-19 (fixed 09-21, Anna: a flagged home is an elevation from the permit year on and
+      none before; the flag is missing only where there was never a Builty feed or no ATTOM match;
+      `complete.do` now sets the flag missing on `attom_matched != 1` or no covered county-year for the
+      property, instead of row by row; full tail rerun 09-21): `elevation_retrofit`, `elevation_source` and `elevation_year` were not
+      constant within a property. `complete.do` sets `builty_elevated` missing in county-years
+      without Builty coverage (`builty_merge != 3`), and the harmonized variables are built row by
+      row from it, so a permit home is flagged only in its covered policy years: 351 properties
+      (LA 332, FL 13, TX 6), all Builty-sourced. Counting a property by its first policy year
+      (`elevations_by_state.do`) gives LA 626 Builty homes; counting any flagged year gives 967.
+      Decide whether the permit should be carried to every policy year of the property (the permit
+      is observed once; coverage belongs in the denominator, not the event) and fix in `complete.do`.
+- [x] Claude change 09-20 (closed 09-21: appendix paragraph with sources at the end of the note; the
+      continued-coverage rule screens 887 of 2,183 ICC homes on the SFHA sample, 41%, against a national
+      demolition share of 30% (Kousky and Lingle 2017); no finer screen possible without an address-level
+      NFIP link): ICC screen tested for issue #25 (Vendela 09-15), write-up in
+      `notes/icc_2026-09-20.md` (repo root; notes stay local, not in Dropbox). 2,618 ICC properties in FL LA TX; 43% leave the panel in
+      the ICC year (the continued-coverage rule drops them as possible demolitions or buyouts); among
+      the 57% that stay, the NFIP elevated flag flips after the payment for 0.7%, 48% were flagged
+      elevated before the flood and 51% never show as elevated. County-level HMA acquisition
+      exposure (LA and TX above 80% either way) cannot sharpen the screen. Recommendation: keep ICC
+      as source 2 but do not count it as a verified elevation; replace the coverage rule with a
+      property-level buyout check when the GOHSEP and RI lists arrive, or via ATTOM transfers to a
+      public grantee. Open: whether `elevated` in the policy file is a current-rating field carried
+      across years (then NFIP flag flips are re-ratings, not elevations). Checked 09-20: the
+      cleaner forces the flag monotone, so drops are invisible; 2,238 of 5.38M multi-year
+      properties ever flip, 711 of them in 2010 (panel start) and almost none after 2021 (Risk
+      Rating 2.0; flagged share falls 10% -> 6.5%). Check the raw indicator in the per-state clean
+      files before source-1 events are used; consider dropping 2010 flips. Raw files checked
+      09-20 (addendum 2 of the ICC note): the raw flag is removed twice as often as added (1 to 0:
+      FL 3,176, LA 1,601, TX 893; 0 to 1: 752, 855, 621), 60% of removals in 2022-2025, and the
+      two directions hit different homes. Keep the monotone cleaning; drop 2010 flips or require
+      a claim before the flip.
+- [x] Claude change 09-20: FEMA BCA discount rate confirmed at 7% (OMB reinstated the 1992 A-94 rate
+      on 2025-04-08; 3.1% applied Nov 2023-Apr 2025); the 0.93 factor in the q6_npv block is 1/1.07,
+      source cited in the script. `es_premium_elevation.do` moved to `descriptives/archive/`;
+      `es_prices_mitigation.do` and the six-questions banner say what supersedes them. The Builty
+      funnel tab is already in `Deck_Sep 8.xlsx` with the 09-15 loose-rung numbers; the 09-19 run
+      changes them by at most 2 per state, so nothing to add.
+- [ ] Claude change 09-20: unfunded applications (section 3 item below) are partly available without a
+      FOIA: OpenFEMA `HmaSubapplications` v2 (FEMA GO, FY2020+ FMA and BRIC, plus HMGP) carries
+      status (approved, not selected, withdrawn) and activity, and `HmaSubapplicationsProjectSiteInventories`
+      v1 has the property sites. Pulled 09-20 (12,490 subapplications in FL LA TX, all programs):
+      elevation subapplications that were denied, not selected, ineligible or withdrawn number
+      about 250 in FL, 130 in LA and 25 in TX, against roughly 470, 450 and 90 approved, obligated
+      or closed. The file reaches back to the PDM, RFC and SRL years, so pre-2020 is partly
+      covered; property-level sites exist only for FEMA GO (FY2020+). Still needs the state lists
+      for older property-level detail.
+- [ ] Claude change 09-20 (Anna): ICC buyout screens beyond continued coverage, addendum 3 of
+      `notes/icc_2026-09-20.md`. ZIP-level funded acquisitions (OpenFEMA mitigated properties, 5,551
+      FL LA TX records) within 3 years of the ICC year: 37% of stayers and 37% of leavers. ATTOM
+      record after the ICC year on the assigned property: improvements fall to zero for about 4% in
+      both groups, nominal transfers 0-3%. Nothing separates leavers from stayers; the coverage rule
+      stays, unvalidated, until a property-level buyout list arrives.
+      09-21 (Anna: NPR data is local): `~/Downloads/fema npr.csv`, 5,010 FL LA TX address-level buyouts
+      (FY 1992-2017), 62% matched to an ATTOM address (`build/npr_buyouts_attom.parquet`); 1,677 NFIP
+      panel properties sit on those addresses but keep their policies a median 12 years past the
+      buyout year, so the cell-level ATTOM-NFIP link does not deliver the bought-out house; 2 of
+      2,618 ICC properties match. Addendum 4 of the ICC note. The NPR file should move from
+      Downloads to `raw/` on Dropbox if it is kept.
+- [x] Claude change 09-20 (Anna): elevations by state as shares of the state's properties in
+      `analysis.dta` (`sh_builty`, `sh_hma_total`, `sh_hma_closed`, `sh_nfip_any`, `sh_an_events`, FL LA TX
+      only) and a closed-projects-only HMA column. Caveat: numerators are statewide counts from the
+      Builty, HMA and NFIP files while the base is the SFHA insured sample, so the shares overstate;
+      `sh_an_events` is the like-for-like rate. Shares: LA Builty 0.26%, HMA 0.94% (closed 0.44%),
+      NFIP 0.28%; TX 0.21 / 0.21 (0.07) / 0.28; FL 0.11 / 0.02 (0.01) / 0.08.
+- [x] Claude change 09-20 (Anna): HMA closed (completed) projects only, optional and outside the
+      pipeline (Anna, same day: "put that as optional and not incorporate into pipeline"). The
+      pipeline files are untouched: `clean_hma.do`, `prep_hma.do`, `merge_nfip_hma.do` and the panel's
+      `hma_*` variables keep every funded project. `descriptives/scratch/hma_closed_projects.do`
+      (run by hand) takes project status from the raw OpenFEMA projects file, writes
+      `clean/hma_county_closed.dta` (county collapse as in `prep_hma.do`, closed projects only) and
+      `output/tables/summary_table_hma_closed.xlsx` (closed vs all-funded county counts and spend on
+      the analysis sample: mean 89 vs 177 properties, $16.3M vs $34.3M). `empirical_facts_six_questions.do`
+      with the third argument `closed` reads that county file (Q4, Q5; outputs `_closed`);
+      `elevations_by_state.do` has the closed column; `hma_cost_timeseries.do` draws `_closed`
+      curves; all three merge status from the raw file themselves (import with `bindquote(strict)` and
+      the project id recast from strL to str100 before it can be a merge key). Closed projects are 2,656 of LA's
+      5,658 HMA properties, 379 of TX's 1,090, 302 of FL's 436; Q4 regression signs unchanged (value
+      coefficient -0.54 vs -0.52 on dollars per repetitive-loss home). `elevations_by_state.do` also
+      now reads `hma_elevation.dta` instead of the old `fma_elevation.dta`.
+- [x] Claude change 09-21 (Anna: "do the rest"): three pipeline edits, logged here per CONVENTIONS 9.
+      (a) `complete.do`: `nfip_flip == 2010` set missing before the harmonized year is built (panel-start
+      artifact, 711 of 2,238 flips; the NFIP status flag `elevated` is untouched). (b) `attom_value.py`:
+      for LA, property-years whose market field sits at the assessed level (market / (10 x assessed)
+      between 0.09 and 0.11, St. Helena above all; `notes/la_valuation_2026-09-20.md`) are set missing;
+      count reported as `la_assessed_level` in the log. Claude change 09-22: (b) reverted before the commit
+      (Anna): the blanking was Claude's pick over rescaling, never put to Anna; a sale-price check 09-22 found
+      95% of the flagged rows already fall under the $10k floor, so the rule touched 24k of 34.9M LA
+      property-years, and in Jefferson, Rapides and St. Charles (5.4k rows) both fields sit at market level and
+      the rule blanked good values. `attom_value.py` is back at the committed version; the LA value file and
+      `analysis.dta` on disk still carry the 09-21 blanking until the tail is rerun (`attom_value` LA ->
+      `attom_value_dta` -> `complete` -> `summary_table` -> `histograms`). (c) the property-level Builty flag (item above).
+      Rerun order: `attom_value` (LA) -> `attom_value_dta` -> `complete` -> `summary_table` -> `histograms`
+      -> descriptives, done 09-21 01:08-01:41: LA assessed-level rows 477,181 of 40.5M property-years;
+      2010 flips 9,783 rows; Builty-flagged rows 25,143 (was 23,677), NFIP flip rows 15,356 (was 25,128).
+      State table (SFHA panel, one row per home): events per 1,000 LA 3.01 (1,813; Builty 969, NFIP 844),
+      TX 2.25 (1,165; 612, 553), FL 0.93 (2,015; 1,327, 688). Summary `elevation_retrofit` 0.15% (was
+      0.17%), `elevation_cost` N 538 mean $206k, `property_value` mean unchanged. `es_elevation`: premium
+      t0-t4 +$2 to +$13 (SE $25-47), t+5 -$113; same-flood excess claim +$40.6k before, -$0.7k after.
+      NPV sheet: median permit valuation $139k, same-flood NPV/cost 0.23, payback 51 years.
+      `build/alternates/hma_subapplications.py` (test script, run by hand) pulls the
+      OpenFEMA subapplications for FL LA TX to `raw/hma_subapplications.csv` and tabulates elevation
+      subapplications by outcome in `output/tables/hma_subapplications_status.xlsx`: funded / not funded /
+      open FL 411 / 289 / 255, LA 358 / 134 / 123, TX 63 / 27 / 61. Not done: removing the Q6 block from
+      the six-questions script, because the NPV sheet takes its coefficients from it; moving the NPV onto
+      `es_elevation.do` changes a deck number, so that is Anna's call.
+- [ ] Claude change 09-21 (Anna: "does the block-group FIPS change matter?"): yes, in the ATTOM match.
+      The NFIP field carries mixed Census vintages: on the LA raw file, 35% of 2009 policy records use
+      codes that exist only in 2010 geography and 4% only in 2020; by 2025 it is 0% and 45%. The
+      property snapshot the matcher uses (first policy year) is 2010-only for FL 25%, LA 29%, TX 35% of
+      properties (30-42% of those first insured before 2021, 1-2% from 2023 on). `nfip_attom.py` keys
+      the block-group tiers 1-4 and 15 on ATTOM's `censusblockgroupfips` (2020 geography) only, so those
+      properties cannot hit a block-group tier and fall to ZIP, community or county tiers. Fix: build the
+      key on both vintages, ATTOM `censusblockgroupfips2010` is already on the geocoded panel, and take
+      the NFIP code against whichever set it belongs to; expect the tier 1-4 share to rise and some
+      Builty-permit homes to move. Rerun of steps 3-4 on the cluster. Within-property splits are small:
+      6.5% of multi-year units (zip x construction date x NB date) carry two codes in LA, mostly in
+      different tracts and spiking in 2010-11 and 2016-17, so they look like re-geocoding or several
+      houses per unit rather than the vintage change; county codes are unaffected. Related: issue #5.
+      FEMA's documentation (checked 09-21) names no vintage: the v2 dictionary says only that tracts are
+      "updated prior to each decennial census" and that "the NFIP relies on our geocoding service to
+      assign" them; the FAQ says the fields are derived from a geocode of the address. Also: the v2
+      policies and claims files are deprecated and removed on 2026-10-15; the successor NfipPolicies v3
+      (refreshed 2026-09-09) carries the block group as `censusGeoid`. Before the next NFIP pull, check
+      whether v3 is uniformly 2020 geography (same test against the ATTOM sets); if so the mix goes away
+      at the source, but `property_id` changes for every re-geocoded home, so the panel is rebuilt.
+      Claude change 09-21, later the same day (Anna): the two-vintage match is OPTIONAL and not
+      adopted. The production scripts are back to their committed versions; the modified copies are
+      `build/alternates/{nfip_attom,attom_geocode,geocode_attom}_vintage.py`, run by hand with outputs
+      under `build/nfip_attom_pipeline_v2/alternates/vintage/`. The cluster job submitted 09-21 (steps
+      1-4, FL LA TX) runs the two-vintage version (Anna: "a final alternate comparison, not pipeline
+      commit"); its outputs go under `alternates/vintage/` on Dropbox, the production links stay the
+      09-19 parquets, and any panel built from it is `analysis_vintage.dta` via a scratch copy of
+      `complete.do`. On the cluster the job overwrites the production geocoded panel and links; the
+      panel is a superset (one extra column, harmless to the production matcher), the links are
+      restorable from Dropbox. What the alternate does: (a) `geocode_attom` runs a second
+      Census pass with vintage `Census2010_Current` over the same cached chunks into `results_2010/`
+      and writes `blockgroups_by_address_2010.parquet` (`--vintage-2010 none` skips it); the three
+      states already have that file from the July/August runs, so no geocoder rerun is needed.
+      (b) `build/attom_geocode.py` merges it onto the panel as `censusblockgroupfips2010`.
+      (c) `build/nfip_attom.py`: every block-group tier (1-4, 11, 15) runs four passes, NFIP homes
+      first insured before `--vintage-switch-year` (2021) against ATTOM's 2010 code, later homes
+      against the 2020 code, then each group against the other vintage; `blockgroup_vintage_used`
+      on the link file says which hit. Missing 2010 column = old behaviour. Local LA step-4 test
+      done: matched 704,064 -> 794,948 of 1,244,072 (57% -> 64%); block-group tiers 1-4 126k -> 167k,
+      tier 11 98k -> 147k, tier 15 276k -> 367k; ZIP tiers 5-6 64k -> 24k and tier 12 93k -> 44k.
+      Vintage that hit: 2010 for 581k matched homes, 2020 for 99k, none (ZIP/community/county tiers)
+      114k. Builty-flagged homes unchanged at 1,369 (Builty houses rank first in every cell), though
+      1,331 of them now sit on a different NFIP id, as the cells changed; 520k homes get a different
+      ATTOM house, 236k are newly matched, 145k lose theirs. Cluster rerun of steps 1-4 for FL LA TX
+      done 09-21 (Anna ran the alternate on the cluster): write-up in `notes/vintage_comparison_2026-09-21.md`,
+      files local only under `data/alternates/vintage/` and `output/alternates/vintage/` (not Dropbox).
+      Match rate FL 85.8 -> 86.0%, LA 56.6 -> 63.9%, TX 91.6 -> 91.7%; block-group tiers 1-4 FL 1.54M -> 2.08M,
+      LA 126k -> 167k, TX 716k -> 1.22M; ZIP tiers fall by the same amount. Value-vs-building-coverage
+      correlation rises in every state (Spearman FL 0.12 -> 0.18, LA 0.28 -> 0.30, TX 0.28 -> 0.33).
+      Builty-flagged homes FL 1,913 -> 1,907, LA 1,369, TX 941 -> 914. Alternate panel (complete.do on
+      `data/alternates/vintage/root`) and descriptives in the same folders: ATTOM-matched 73.5 -> 74.8%,
+      premium event study still flat, pre-trend p-values 0.12/0.09/0.01 -> 0.71/0.26/0.25, permit homes on
+      the SFHA sample FL 1,327 -> 1,377, TX 612 -> 626, LA 969 -> 770. The LA fall is an artifact: the
+      vintage preference pairs permit houses with older NFIP ids in the block group (median 4 vs 6 policy
+      years), which more often ended before the parish had a Builty feed, so the flag is set missing as
+      unobservable (ever-covered flagged ids 1,224 -> 1,001).
+- [ ] Claude change 09-21: permit-aware cell ranking. In `nfip_attom.py` (and the alternate) the NFIP side
+      of a cell is ranked by a hash; when the ATTOM house is a permit house, rank NFIP ids alive in the
+      permit year first. Removes the LA artifact above and would raise permit counts in production too.
+      09-22 (Anna: "do that in my alternate pipeline"): built into `build/alternates/nfip_attom_vintage.py`
+      only. In a cell with a permit house, NFIP homes insured in the permit year rank first, then homes
+      built by the permit year, then the hash; new link column `nfip_alive_at_permit`. Needs
+      `--policy-years`, a parquet of (state, property_id_state, policy_year_first, policy_year_last)
+      built from `nfip_hma_panel.dta`, kept locally at `data/alternates/vintage/nfip_policy_years.parquet`
+      (38 MB; upload to the cluster beside the properties file, `data/clean/`, and the matcher finds it
+      without a flag). LA test 09-22: tier counts unchanged; permit homes insured in their permit year
+      52% (production) / 29% (two-vintage) / 65% (with ranking); flagged ids ever in a covered
+      parish-year 1,224 / 1,001 / 1,351; permit homes on the SFHA sample 969 / 770 / 1,063. Production unchanged.
+      Cluster step-4 rerun 09-22 and local alternate panel: permit homes on the SFHA sample FL 1,358 / LA
+      1,070 / TX 621 (production 1,327 / 969 / 612), retrofits 5,109 vs 4,993, event-study shape the same
+      as production under Anna's revised es_elevation.do (premium -$326 vs -$357 at t+5, flood-year claims
+      +$34.8k vs +$46.0k). Final section of `notes/vintage_comparison_2026-09-21.md`.
+      Recommendation in `notes/vintage_comparison_2026-09-21.md`: adopt the two-vintage match together with
+      this ranking, in one cluster run, before results are final.
 - [x] SUPERSEDED (merge 09-15, Vendela's version kept): Anna's ATTOM side restructure (Anna: "one ATTOM file and merge"; the
       per-state wide value files and the 27 one-year merges were swapping a 16 GB laptop).
       `build/attom_stata.py` (one `attom_stata` switch in `master.do`, replaces `parquet_dta`,
@@ -125,6 +328,70 @@ execution is a thin wrapper in `slurm/` around the same script, never separate l
   `analysis_with_diagnostics.dta`) → `summary_table`, `es_prices_mitigation`. `complete.do` fails on
   the current link files because they lack the two new Builty columns. LA steps 3-4 were run locally
   on 09-10 as a test of the Python changes (scratch output, not copied to Dropbox).
+
+- [ ] Claude change 09-21 (Anna: "help me revise and fill out" the deck): draft at
+      `notes/slides_2026-09-21/slides.tex`, figures it needs copied to `notes/slides_2026-09-21/figures/`
+      (the source PNGs stay in `output/figures`). Code edits, logged here per CONVENTIONS 9:
+      (a) `analysis/es_elevation.do`: axis titles are now "Years from permit" and "Effect on premium
+      (2023 $)" (claims and any-claim likewise); a cost-effectiveness block after the same-flood
+      regressions (pre-minus-post excess claim per flood year x share of the permitted homes'
+      county-years that are flood years, 30-year present value at FEMA's 7% BCA rate, against the median
+      declared permit cost of the permitted homes) writes sheet `npv` in `output/tables/es_elevation.xlsx`;
+      the `q6_npv` sheet of the six-questions workbook is superseded by it. (b) new scratch
+      `descriptives/scratch/summary_table_slides.do` (run by hand): the slide's layout, medians, All /
+      Pre-FIRM / Post-FIRM, on the SFHA analysis sample, to `output/tables/summary_table_slides.xlsx`;
+      the pipeline `summary_table.do` is untouched (Vendela's). Claude change 09-22 (Anna: the slide
+      table is the desired summary table): it is now `descriptives/summary_table.do`, run from
+      `master.do`, writing `output/tables/summary_table.xlsx`; the means table is archived as
+      `descriptives/archive/summary_table_means.do`. Same-day check: every number reproduces by an
+      independent collapse; `post_firm` is not constant within property (58,127 property-years
+      switch), the scripts take the last year, so the Pre/Post columns move by a few thousand
+      properties under the first-year rule (Anna to pick); the deck's pre-FIRM loss ratio was
+      typed 1.27, table says 1.265, slide corrected to 1.26. (c) new scratch
+      `descriptives/scratch/nfip_claims_timeseries.do` (run by hand): NFIP claims paid by year of loss,
+      all policies nationwide, 2023 $, from the raw claims CSV, to `output/figures/nfip_claims_by_year.{png,gph}`
+      for the motivation section ($126.8bn over 1978-2025; 2005 $27bn, 2017 $13bn, 2012 $12bn).
+      Slide numbers (SFHA sample, 3,291,652 properties): median premium $644 (pre-FIRM $888, post $574);
+      claims/premiums 1.07 (1.27 / 0.82); median cumulative claims among claimants $82.6k; elevated ex
+      ante 450,281; harmonized retrofit events 4,993 (3,543 / 1,450); median declared retrofit cost
+      $145.9k. Still open for the deck: motivation figures for annual U.S. flood losses (NOAA) and the
+      Wing et al. (2022) projection; whether the histogram frame or the cost-vs-claims scatter frame
+      carries the "elevation is often worth it" point; the raw national policy file is online-only in
+      Dropbox, so the policy count and coverage on the Setting slide are FEMA's published figures.
+
+- [ ] Claude change 09-22 (Anna: "do the by source split"): `analysis/es_elevation.do` section 4 runs
+      the same event study with one elevation source treated at a time against all never-elevated
+      homes, writing `output/figures/es_elevation_{premium,claim,any_claim}_{permit,flip,icc}.{png,gph}`
+      and a three-panel `_by_source` figure per outcome; the pooled sections 1-3 are unchanged. Treated
+      homes in cohorts 2012-2022: permit 1,573, flip 490, ICC 741. Result: the pooled premium drop is the
+      flip and ICC homes (flip -$140 to -$210 from t+1, ICC -$260 falling to -$720 by t+5, both with
+      a downward pre-trend); permit homes show no premium change (+$3 to +$22, t+5 -$105). The pooled
+      +$46k claim spike at t0 is the ICC homes alone (+$125k at t0, the year of loss by construction;
+      flip and permit homes show nothing at t0). No source shows claims below the normal pre-years after
+      the event. Open: whether to re-date ICC events (year of loss + 1) and drop flip homes from the
+      claims event study, in `complete.do`; see the deck comments.
+
+- [ ] Claude change 09-22 (Anna: "restore it under permit definition", then "a new script that just
+      does the same-flood numbers"): the same-flood comparison and cost effectiveness now live in
+      `analysis/same_flood_claims.do` (master.do switch `same_flood_claims`), permit-only, writing
+      `output/figures/same_flood_claims.{png,gph}` and `output/tables/same_flood_claims.xlsx` (sheets
+      same_flood, npv, raw_means). `es_elevation.do` keeps sections 1-4 (pooled and by-source event
+      studies) and no longer writes an xlsx. Results 09-22, identical to the 09-21 run: pre +$40.6k
+      (SE 9.1k), post -$0.7k (SE 2.1k), $41.3k avoided per flood year; flood-year share 7.1%; $2.9k a
+      year; NPV $36.4k at 7% over 30 years against a $146.0k median permit cost (0.25, payback 50 years).
+      The deck's premium slide uses the permit panel of the by-source run; the pooled and by-source
+      plots are in the appendix.
+
+- [x] Claude change 09-22 (Anna: "see if it replicates last week's results"): scratch
+      `descriptives/scratch/es_claims_spec_bridge.do` (run by hand) reproduces the 09-16 six-questions
+      claims event study exactly (spec A: pooled TWFE, county x year FE, SE by home, all cohorts, 5%
+      controls; t-5 -$23,390 SE 2,184 as in the q6 sheet) and walks to this week's version: B cluster
+      by county (same points, SEs x4-5); C county x zone x year FE (no change, within $150); D this
+      week's sample (ATTOM-matched, cohorts 2012-2022, counties with a permit, 10% controls; treated at
+      t0 1,209 -> 663) halves the level to about -$11k, matching the interaction-weighted permit panel
+      within $2k. So last week vs this week is clustering (bars) and the cohort/sample restriction
+      (level), not the zone effects or the estimator. Outputs `output/tables/es_claims_spec_bridge.xlsx`,
+      `output/figures/es_claims_spec_bridge.{png,gph}`.
 
 ## 1. Canonical path — settled 2026-09-03
 
@@ -205,7 +472,7 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
       Parish (263k NFIP properties, 758 of 1,300 Builty retrofits) has no ATTOM year built at all,
       so nothing there can be displaced; the reorder moves 85k of 1.24M assignments and puts one more
       retrofit on the panel (1,218 -> 1,219). Leave the ladder as is. The LA problem is ATTOM's
-      year coverage, not the match order; write-up in Dropbox `Flooding/Notes/la_year_built_2026-09-13.md`.
+      year coverage, not the match order; write-up in `notes/la_year_built_2026-09-13.md`.
 - [ ] Claude change 09-14: Builty → ATTOM address match, two looser rungs tested in
       `build/alternates/attom_builty_fuzzy.py` (test script, run by hand; review listings in
       `tmp/fuzzy/`). Rung 7, house number + first street word + ZIP, unique in the ZIP: LA 85.4 →
@@ -227,7 +494,7 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
       `jaro_winkler` in `builty_attom_match_tier` (diagnostics file), so exact-only results are
       one filter away.
 - [ ] Claude change 09-10: Builty → ATTOM → NFIP loss (issue #26 deck note): where the drop happens and why is written
-      up in Dropbox `Flooding/Notes/deck_notes_2026-09-10.md`; add the tab to the deck.
+      up in `notes/deck_notes_2026-09-10.md`; add the tab to the deck.
 - [ ] Keep unfunded/denied/withdrawn applications with a `funded` flag instead of dropping them,
       so self-financed elevations can be measured (Builty elevation with no grant match). Flag
       local recovery programs (e.g. NYC Build It Back, `funding_type == 5` in `clean_builty.do`)
@@ -252,6 +519,22 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
       Book, so coverage is flagged at the grain the feeds exist (needs name matching; locality names
       are noisy in FL and VA). `nfipratedcommunitynumber` is dropped in `merge_nfip_fma.do`; keep it
       if (c) goes ahead.
+      Claude change 09-16: (c) first pass in `build/alternates/builty_coverage_jurisdiction.py`
+      (test script, run by hand, Vendela 09-15). Builty LOCALITY -> NFIP community number
+      within state by three rules: municipal name (X, CITY/TOWN/VILLAGE OF), county or parish
+      name, else the locality's modal county's community. Permit shares matched by the
+      municipal rule: FL 85%, TX 98%, LA 58% (41% of LA permits fall to the parish rule,
+      Metairie-type places); unmatched < 0.1%. The NFIP community list comes from the raw
+      per-state policy files (state, cid, name, county), no FEMA download. Stage 2 compares
+      elevation events per 1,000 insured homes under county vs community coverage
+      (`output/tables/builty_coverage_crosswalk_compare.xlsx`, events counted in observed
+      policy years). County -> community coverage: FL homes 2.17M -> 2.06M, events per 1,000
+      0.64 -> 0.59; LA 602k -> 309k, 2.62 -> 3.06 (Builty-only 0.95 -> 1.58); TX 517k -> 182k,
+      1.57 -> 1.50 (Builty-only 0.38 -> 0.58). The stricter grain raises the permit rate by
+      half in LA and TX and leaves the all-source rate near 0.1-0.3 percent, because NFIP-flag
+      and ICC events are spread across every community. If adopted: keep
+      `nfipratedcommunitynumber` in `merge_nfip_hma.do` and move the crosswalk into
+      `clean_builty_coverage.py`; the weak rule is 3 (mailing city in unincorporated county).
 - [ ] Further sample restrictions (SFHA, FMA eligibility): decided 09-15 that `complete.do` restricts
       nothing; coverage and `attom_matched` are flags and the analysis scripts apply the sample rule.
       Any future restriction goes there too, leaving `analysis.dta` as the flagged universe.
@@ -274,3 +557,74 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
       Event = Builty retrofit permit; denominators = ATTOM-linked homes in strictly covered
       county-years, 2010-2024. Open: prior claims are panel-observed (2009 on) only; the
       same-flood comparison uses a 5% control draw.
+- [x] Claude change 09-16: event studies (Vendela 09-15). Reference period is a `ref_period` local
+      (= -1, was -2) in `empirical_facts_six_questions.do` (Q6) and `es_premium_elevation.do`;
+      matrices carry all 11 periods with the reference row at zero. Figure notes removed
+      (sample and spec go on the design slide). Both scripts remapped to the 09-15 panel names
+      (`elevation_retrofit`, `elevation_source` 3 = Builty, `elevation_year`, `elevation_cost`,
+      `property_value`); Q4 and Q5 read `hma_spend` / `hma_n_properties` (all programs, no
+      FMA-HMGP split) and `clean/hma_elevation.dta`. Premium result at t = -1: pooled
+      post-permit change +$8 a year (SE $20), no drop.
+- [ ] Claude change 09-16: cost effectiveness (Vendela 09-15) -- Q6 writes sheet `q6_npv`: annual
+      claims saving = mean claim coefficient over t-5..t-2 minus t+1..t+5 (flood year t-1 excluded,
+      so independent of the reference period), NPV over 30 years at 0.93, against the median permit
+      valuation. Confirm the discount rate against FEMA's BCA rate. 09-16 rerun: the event-study
+      saving is -$227 a year (post years equal the normal pre years; floods are too rare inside the
+      window), NPV -$2.7k. Same-flood version (second block of the sheet): saving per flood year
+      $52,140 (pre minus post excess claim), flood-year share of permitted homes' county-years
+      5.5%, expected saving $2,881 a year, NPV $33.9k against a median permit valuation of
+      $213.9k: NPV/cost 0.16, payback 74 years. Same direction as Hovekamp and Wagner (2023): ex post
+      retrofits do not pay on avoided claims alone. Open: the permit valuation median (FL/TX job
+      values) may include rebuilds, and the pre-permit excess claim includes the triggering flood.
+- [x] Claude change 09-16: elevations per insured home by state (Vendela 09-15, issue #13) -- five
+      "Analysis sample" columns in `elevations_by_state.xlsx` from `analysis.dta` (SFHA homes in
+      covered county-years): events per 1,000 homes LA 2.9 (1,734 / 601,794), TX 2.4 (1,233 /
+      516,758), FL 1.1 (2,284 / 2,173,100). About 0.1-0.3 percent, an order of magnitude above the
+      0.01 percent worry from the 09-03 meeting.
+- [x] Claude change 09-17: `analysis/es_elevation.do` (Vendela's slide note: a defensible event study
+      in the analysis folder). Switch `es_elevation` in `master.do`, off by default. Writes
+      `output/figures/es_elevation_{premium,claims,any_claim,same_flood}.{gph,png}`,
+      `output/tables/es_elevation.xlsx`, log in `output/logs/`. Design: interaction-weighted (Sun and
+      Abraham) built in `reghdfe`, since `eventstudyinteract` and `coefplot` are not installed;
+      cohort-specific event-time coefficients averaged with cohort shares, weights treated as fixed
+      in the SE. Treated = Builty permit homes, permit years 2012-2022 (the 2025 cohort, the largest,
+      has no post period). Controls = homes with no elevation from any source, ATTOM-matched, in
+      counties with a permitted home, 10% seeded draw. Effects: home, county x zone (A/V) x year.
+      SE clustered by county (62). Reference t = -1, endpoints binned at 5.
+      Results: 1,541 permitted homes (663 insured in the permit year), 206,338 control homes,
+      1.05M home-years. Premium flat: t0..t4 between +$5 and +$17, SE $23-47; the t+5 bin is -$118
+      (SE $56). Two-way FE pre-trend tests: premium p = 0.19, claims 0.39, any claim 0.10. Claims
+      relative to the flood year t-1 are -$8k to -$18k in every other period, pre and post alike.
+      Same flood (all permit homes): excess claim +$41.5k before the permit (SE $9.2k), -$0.4k after
+      (SE $2.0k); any claim +0.19 before, +0.11 after; 784 and 528 home-years.
+      Open: no code markers in this script per CONVENTIONS section 9; it supersedes the Q6 block of
+      the six-questions scratch script and `es_premium_elevation.do`, which can be archived once the
+      deck points at the new figures. `es_prices_mitigation.do` still calls `eventstudyinteract` and
+      old variable names, so it does not run on this machine.
+- [x] Claude change 09-18: `descriptives/scratch/hma_cost_timeseries.do` (Anna: deck motivation figure).
+      Cumulative total project cost of funded HMGP and FMA (incl. SRL, RFC) grants by obligation year
+      in 2024 dollars, from the raw OpenFEMA HMA Projects file with the `clean_hma.do` status screen;
+      one figure for all projects, one for home-elevation projects (types 202.1 and 202.2). 2026 is
+      dropped as a partial year. Scratch, run by hand, not in `master.do`.
+      Claude change 09-20: the 09-18 import lacked `bindquote(strict)` (which `clean_hma.do` uses), so
+      quoted fields shifted columns and the 09-18 totals (HMGP $38.0bn / FMA $2.3bn; elevation $0.70bn /
+      $0.97bn) were wrong. Corrected, through 2025 in 2024 dollars: all projects HMGP $48.3bn, FMA $2.7bn;
+      elevation projects HMGP $2.52bn, FMA $1.25bn (consistent with 13,145 HMGP and 4,269 FMA elevated
+      properties at roughly $190k and $290k each). Closed projects only (`_closed` figures): all HMGP
+      $28.2bn, FMA $1.76bn; elevation HMGP $1.95bn, FMA $0.71bn. Redraw the deck figure from the new PNGs.
+- [x] Claude change 09-22 (Anna): archived the scripts the 09-22 deck no longer uses:
+      `analysis/es_prices_mitigation.do` -> `analysis/archive/` (switch and call removed from
+      `master.do`); `descriptives/scratch/{empirical_facts_six_questions, empirical_facts_candidates,
+      es_premium_change_elevations}.do` -> `descriptives/scratch/archive/`. Their figures
+      (`q1_*` to `q6_*`, `fact11_*`, `es_premium_change_*`) stay in `output/figures` until the
+      folder is next cleaned. `analysis/es_elevation.do` carries the event studies and the
+      same-flood comparison; the NPV sheet `q6_npv` lived in the six-questions workbook, so the
+      cost-effectiveness numbers now come from `es_elevation.do`.
+- [x] Claude change 09-22 (Anna): `descriptives/scratch/{hma_cost_timeseries, nfip_claims_timeseries}.do`
+      -> `descriptives/scratch/archive/` (no motivation figure in the 09-22 deck).
+      `nfip_policies_coverage.py` stays: it supplies the Setting slide's policy count and coverage.
+- [x] Claude change 09-22 (Anna): `descriptives/scratch/{builty_coverage_table, empirical_facts_figures,
+      empirical_facts_from_workbook}.do` -> `descriptives/scratch/archive/` (the Builty Coverage frame and
+      the `figure_1`-`figure_5` set are not in the 09-22 deck). `create_builty_elevation_wordcloud.py`
+      stays for the appendix word cloud.
+
