@@ -175,8 +175,14 @@ execution is a thin wrapper in `slurm/` around the same script, never separate l
       coefficient -0.54 vs -0.52 on dollars per repetitive-loss home). `elevations_by_state.do` also
       now reads `hma_elevation.dta` instead of the old `fma_elevation.dta`.
 - [x] Claude change 09-21 (Anna: "do the rest"): three pipeline edits, logged here per CONVENTIONS 9.
-      (a) `complete.do`: `nfip_flip == 2010` set missing before the harmonized year is built (panel-start
-      artifact, 711 of 2,238 flips; the NFIP status flag `elevated` is untouched). (b) `attom_value.py`:
+      (a) `complete.do`: `nfip_flip == 2010` set missing before the harmonized year is built. Reverted
+      09-23 (Vendela): a 2010 flip is an observed 0 -> 1 from 2009, not a panel-boundary effect, and no
+      mechanism for the spike was given. Panel check 09-23: flips by year 2010 711, 2011 135, 2016 peak
+      324 on a flat ~2.1M policy-years at risk; by entry cohort the first renewal flips at several times
+      the later rate for every cohort (2009 cohort 711 in 2010, 2010 cohort 88 in 2011, 2011 cohort 42
+      in 2012), so a 2010-only drop is inconsistent with the pattern. Whether NFIP flips are elevation
+      events or first-renewal re-ratings stays open (ICC item above). `analysis.dta` on disk carries the
+      09-21 blanking until `complete` -> `summary_table` -> `histograms` is rerun. (b) `attom_value.py`:
       for LA, property-years whose market field sits at the assessed level (market / (10 x assessed)
       between 0.09 and 0.11, St. Helena above all; `notes/la_valuation_2026-09-20.md`) are set missing;
       count reported as `la_assessed_level` in the log. Claude change 09-22: (b) reverted before the commit
@@ -535,6 +541,50 @@ killed-but-likely file were in the session scratchpad, rebuild from `clean/built
       and ICC events are spread across every community. If adopted: keep
       `nfipratedcommunitynumber` in `merge_nfip_hma.do` and move the crosswalk into
       `clean_builty_coverage.py`; the weak rule is 3 (mailing city in unincorporated county).
+- [ ] Claude change 09-23 (Vendela: "does prevalence improve if complete.do restricts to covered
+      counties or localities from the first reporting year on?"): checked read-only, nothing in the
+      pipeline changed; scripts in `descriptives/scratch/builty_coverage_community.py` and
+      `descriptives/scratch/nfip_elevation_validation.py`.
+      (a) Feeds persist: of FL LA TX counties that ever report, 71-77% have no gap year, 87-92%
+      still report in 2024+, and only Taylor TX (to 2019), Sumter FL (to 2022) and Hernando FL (to
+      1999) stop early. The first loose year is a trickle (strict floor comes 2-7 years later on
+      median), so "from the first year on" should open at the first year with 50+ permits or the
+      strict floor, not the first row.
+      (b) Coverage barely moves prevalence. Three-state SFHA, Builty events per 1,000 properties
+      (% of properties): none 0.55 (0.09); county from first 50+ year 0.64 (0.11); community from
+      first substantive year 0.65 (0.11); ZIP 0.73 (0.13); community and ZIP and ATTOM matched 0.99
+      (0.17); same and 2013+ 1.18 (0.20). All 1,802 events already sit in covered county-years, so
+      rules only shrink the denominator; FL (2.1M of 2.9M covered homes, covered since the 1990s)
+      stays at 0.33 per 1,000 under every rule. 46% of covered matched homes are in communities
+      with zero events; Jefferson Parish 382, Tampa 187, Houston 186, Bellaire 140, EBR 89.
+      (c) Crosswalk: name harmonization does not fix LA (59% by name, same as the 09-16 pass),
+      because Builty LOCALITY is the mailing city and Baton Rouge, Metairie, Houma, Marrero are
+      unincorporated places whose community is the parish. A name-free ZIP-weighted attribution
+      (permit -> community by the NFIP policy shares of its ZIP; no-ZIP permits by their locality's
+      ZIP mix) assigns 100% of LA and 96% of FL/TX permits and beats the name route where they
+      disagree (Orlando, Fort Myers, Pensacola permits are mostly unincorporated county). If a
+      community grain is adopted, build it this way in `clean_builty_coverage.py` and keep
+      `nfipratedcommunitynumber` in `merge_nfip_hma.do`; county from first 50+ year is within 3%
+      of it and needs nothing new.
+      (d) Sample rule decision (analysis script, not complete.do): ATTOM matched, community (or
+      county) covered from first substantive year, ZIP coverage as robustness. To raise prevalence
+      the lever is the state, not the crosswalk: LA reaches 0.71% of properties (4.5 per 1,000,
+      661 events); FL never exceeds 0.12%. VA link file (09-01 screen): 215 SFHA events, 1.8 per
+      1,000, 97% matched, 44 counties, ZIP missing 46%; NC 63 events, 0.36 per 1,000. VA is worth
+      adding, NC is not. Alternative unit: community-year elevation counts.
+      (e) NFIP flag validation, raw elevation certificate fields (`elevationDifference`,
+      `lowestFloorElevation`, dropped by `clean_nfip_policies.do`), within property post(1..3)
+      minus pre(-3..-1): NFIP flip median 0 ft, 9% rise 3 ft or more, 62% unchanged, and the field
+      goes from 72% to 36% missing at the flip, so the flip is a certificate entering the rating,
+      mostly for an already-elevated house (LA the partial exception, 29% rise 3+ ft). Year- and
+      state-matched premium change: flip -0.22 log, ICC -0.32, Builty -0.05; ATTOM value rises
+      after none of them. Builty-permitted homes: NFIP flag flat at 22% before and after, elevation
+      fields unchanged in 99%, claim rate falls from 18% in the permit year to 2-3% after, so NFIP
+      does not re-rate after a retrofit rather than the permit hitting the wrong house.
+      Agreed 09-23: keep `elevationdifference` and `lowestfloorelevation` in `clean_nfip_policies.do`
+      (rerun from there) so the check runs in Stata, and define a certificate-validated NFIP or ICC
+      elevation (flag flip or ICC payment with a rise of 3 ft or more in the same window) as a
+      candidate fourth source; treat the plain flip as a rating event, not an elevation.
 - [ ] Further sample restrictions (SFHA, FMA eligibility): decided 09-15 that `complete.do` restricts
       nothing; coverage and `attom_matched` are flags and the analysis scripts apply the sample rule.
       Any future restriction goes there too, leaving `analysis.dta` as the flagged universe.
