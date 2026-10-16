@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-09-15
+Date: 2026-10-02
 
 Description: Histograms of cumulative NFIP claims and elevation costs. 
 
@@ -51,17 +51,17 @@ histogram ln_claim, `bars' fcolor("`blue'") lcolor("`blue'") `axis' legend(off) 
 //    note("N = `n' properties with a claim; median \$`med' (dashed line)")
 graph export "`output'/figures/claims_histogram.png", width(2000) replace
 
-* Elevation cost, among Builty-elevated homes reporting one
+* Elevation cost, among permit-elevated homes reporting one
 qui sum elevation_cost if elevation_cost >= 1000, detail
 local n = string(r(N), "%12.0fc")
 local med = string(r(p50), "%12.0fc")
 histogram ln_cost, `bars' fcolor("`blue'") lcolor("`blue'") `axis' legend(off) ///
     xtitle("Elevation cost (2023 \$)", size(medlarge)) ///
     xline(`=ln(r(p50))', lcolor(cranberry) lpattern(dash))
-    // note("N = `n' Builty-elevated homes with a declared value (FL and TX permits); median \$`med' (dashed line)")
+    // note("N = `n' permit-elevated homes with a declared job value; median \$`med' (dashed line)")
 graph export "`output'/figures/elevation_cost_histogram.png", width(2000) replace
 
-* Elevation cost against the claims paid before it, one point per Builty-elevated home
+* Elevation cost against the claims paid before it, one point per permit-elevated home
 qui count if !mi(ln_cost) & !mi(elevation_year)
 local n_cost = string(r(N), "%12.0fc")
 qui count if !mi(ln_cost) & !mi(elevation_year) & claims_pre < 1000
@@ -77,6 +77,6 @@ twoway (function y = x, range(`=ln(1000)' `=ln(10000000)') lcolor(gs8) lpattern(
     aspectratio(1) graphregion(color(white)) plotregion(color(white)) ///
     xtitle("Cumulative NFIP claims paid before elevation (2023 \$)", size(medlarge)) ///
     ytitle("Elevation cost (2023 \$)", size(medlarge)) legend(off)
-    // note("N = `n' Builty-elevated homes with a declared cost and >= \$1k of prior claims, `n_above' above the 45-degree line;" ///
+    // note("N = `n' permit-elevated homes with a declared cost and >= \$1k of prior claims, `n_above' above the 45-degree line;" ///
     //      "a further `n_noclaim' of `n_cost' elevated homes had no prior claim and are not shown")
 graph export "`output'/figures/claims_vs_elevation_cost.png", width(2000) replace

@@ -1,12 +1,16 @@
-"""Authors: Anna Li
-Date: 2026-08-06
-Revised: 2026-09-06 
+"""
+Authors: Anna Li
+Date: 2026-10-02
 
-Fill missing Builty ZIP codes using the existing ZIP, address text, same-address
-matches, and the Census batch geocoder when needed.
+Description: Fills missing permit ZIP codes using the existing ZIP, address text,
+    same-address matches and the Census batch geocoder, and sends every permit
+    address to the geocoder for a block group and coordinates, which
+    build/attom_permits.py uses to place houses ATTOM could not geocode.
 
-Revision: every permit with a street address is now sent to the Census endpoint, to come back with more than just zipcode
-attom_builty.py uses those to backfill ATTOM properties whose own geocode failed
+Claude change 10-02: was geocode_permit.py (archived); reads clean/permit_elevations.dta,
+    writes clean/permit_elevations_zipfilled.dta, output columns *_permit, and strips a
+    trailing backslash from the street (one such address made the Census endpoint return
+    HTTP 500 for its whole 10,000-row chunk).
 """
 
 from __future__ import annotations
@@ -35,8 +39,8 @@ RESULT_COLS = [
 
 
 def parse_args() -> argparse.Namespace:
-    #  point it at the cleaned Builty file 
-    parser = argparse.ArgumentParser(description="Fill Builty ZIP codes with the Census geocoder.")
+    #  point it at the cleaned permit file 
+    parser = argparse.ArgumentParser(description="Fill permit ZIP codes with the Census geocoder.")
     parser.add_argument("--data", required=True, help="Project data root.")
     parser.add_argument("--input", default=None)
     parser.add_argument("--output", default=None)
@@ -74,6 +78,7 @@ def clean_street_for_census(street: object, city: object, state: object) -> str:
 
     # Builty sometimes appends assessor subdivision metadata after the address.
     value = re.sub(r"\s+-\s+SUBDIV(?:ISION)?\s*:.*$", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"\\+$", "", value)
 
     # The batch endpoint receives city and state in separate fields. Remove a
     # duplicated trailing city/state from the street field when both are known.
@@ -85,7 +90,7 @@ def clean_street_for_census(street: object, city: object, state: object) -> str:
 
 
 def prepare_census_address(street: object, city: object, state: object) -> tuple[str, str, str]:
-    # Turn the messy Builty string into the simple street / city / state fields
+    # Turn the messy address string into the simple street / city / state fields
     # the Census batch endpoint likes.
     street_value = re.sub(r"\s+", " ", str(street or "")).strip()
     city_value = re.sub(r"\s+", " ", str(city or "")).strip()
@@ -211,14 +216,14 @@ def census_geocode(addresses: pd.DataFrame, work: Path, workers: int,
 
 
 def main() -> None:
-    # Main pipeline: load the Builty file, fill the missing ZIPs in stages, then
+    # Main pipeline: load the permit file, fill the missing ZIPs in stages, then
     # save the cleaned output.
     args = parse_args()
     data = Path(args.data)
-    input_path = Path(args.input) if args.input else data / "clean" / "builty_elevations.dta"
+    input_path = Path(args.input) if args.input else data / "clean" / "permit_elevations.dta"
     output_path = (Path(args.output) if args.output else
-                   data / "clean" / "builty_elevations_zipfilled.dta")
-    work = data / "build" / "builty_zip_geocode"
+                   data / "clean" / "permit_elevations_zipfilled.dta")
+    work = data / "build" / "permit_zip_geocode"
     work.mkdir(parents=True, exist_ok=True)
 
     frame = pd.read_stata(input_path, convert_categoricals=False)
@@ -227,7 +232,7 @@ def main() -> None:
 
     # If the cleaned file does not already have a stable ID, build one from the
     # address keys so later review files stay reproducible.
-    if "builty_id" not in frame.columns:
+    if "permit_id" not in frame.columns:
         county = clean_text(frame["county"]) if "county" in frame.columns else ""
         property_key = (clean_text(frame["state"]).str.lower() + "|" + county.str.lower()
                         + "|" + clean_text(frame["street_address"]).str.lower())
@@ -235,7 +240,7 @@ def main() -> None:
             lambda value: "property_" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:20]
         )
         occurrence = frame.groupby(base_id, sort=False).cumcount()
-        frame["builty_id"] = base_id + occurrence.map(lambda value: f"_{value + 1:02d}")
+        frame["permit_id"] = base_id + occurrence.map(lambda value: f"_{value + 1:02d}")
 
     # Start by normalizing the raw address and ZIP fields so the easy fill rules are
     # consistent across the whole frame.
@@ -281,10 +286,10 @@ def main() -> None:
 
     frame["zipcode_census_match"] = ""
     frame["zipcode_census_match_type"] = ""
-    frame["censusblockgroupfips_builty"] = ""
-    frame["longitude_builty"] = float("nan")
-    frame["latitude_builty"] = float("nan")
-    frame["geocode_match_builty"] = ""
+    frame["censusblockgroupfips_permit"] = ""
+    frame["longitude_permit"] = float("nan")
+    frame["latitude_permit"] = float("nan")
+    frame["geocode_match_permit"] = ""
     if not args.local_only and len(addresses):
         # Census is the main external backstop: batch geocode the addresses
         results = census_geocode(
@@ -300,10 +305,10 @@ def main() -> None:
         frame.loc[fill, "zipcode_source"] = "census"
         frame.drop(columns="zipcode_census", inplace=True)
         # block group and coordinates for every geocoded permit
-        frame["censusblockgroupfips_builty"] = frame.pop("blockgroup_census").fillna("")
-        frame["longitude_builty"] = frame.pop("longitude_census")
-        frame["latitude_builty"] = frame.pop("latitude_census")
-        frame["geocode_match_builty"] = frame["zipcode_census_match"].fillna("")
+        frame["censusblockgroupfips_permit"] = frame.pop("blockgroup_census").fillna("")
+        frame["longitude_permit"] = frame.pop("longitude_census")
+        frame["latitude_permit"] = frame.pop("latitude_census")
+        frame["geocode_match_permit"] = frame["zipcode_census_match"].fillna("")
 
     # A few states use leading-zero ZIPs. If the state name is embedded with a 4-digit
     # suffix, we pad it back to a 5-digit ZIP.
@@ -322,14 +327,14 @@ def main() -> None:
     frame.loc[fill, "zipcode_source"] = "address_text_padded"
 
     # Manual review file, if present, can override the remaining unresolved ZIPs.
-    override_path = work / "manual_builty_zip_overrides.csv"
+    override_path = work / "manual_permit_zip_overrides.csv"
     frame["zipcode_manual_review_note"] = ""
     frame["zipcode_manual_source_url"] = ""
     if override_path.exists():
         overrides = pd.read_csv(override_path, dtype=str, keep_default_na=False)
         overrides["zipcode_manual"] = valid_zip(overrides["zipcode"])
-        overrides = overrides[["builty_id", "zipcode_manual", "review_note", "source_url"]]
-        frame = frame.merge(overrides, on="builty_id", how="left")
+        overrides = overrides[["permit_id", "zipcode_manual", "review_note", "source_url"]]
+        frame = frame.merge(overrides, on="permit_id", how="left")
         fill = frame["zipcode"].eq("") & frame["zipcode_manual"].fillna("").ne("")
         frame.loc[fill, "zipcode"] = frame.loc[fill, "zipcode_manual"]
         frame.loc[fill, "zipcode_source"] = "manual_review"
@@ -344,7 +349,7 @@ def main() -> None:
                    variable_labels={k: v for k, v in labels.items() if k in frame.columns})
     # 09-07: fill counts to the log only; no diagnostic or review files from the pipeline
     print(frame["zipcode_source"].value_counts(dropna=False).to_string())
-    print(frame.groupby("state")["censusblockgroupfips_builty"]
+    print(frame.groupby("state")["censusblockgroupfips_permit"]
           .agg(permits="size", with_blockgroup=lambda s: s.ne("").sum()).to_string())
     print(f"Saved: {output_path}")
 

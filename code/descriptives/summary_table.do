@@ -1,7 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-09-21
-Revised: 2026-09-22
+Date: 2026-10-02
 
 Description: Summary statistics table (deck and paper): one row per statistic, All /
     Pre-FIRM / Post-FIRM columns, on the analysis dataset (NFIP-insured single-family
@@ -64,7 +63,7 @@ foreach g of local groups {
     // ATTOM value: median among matched properties
     qui sum property_value if `g', detail
     mat S[7, `j'] = r(p50)
-    // elevations: counts of properties; retrofit cost is the Builty declared value (FL, TX)
+    // elevations: counts of properties; retrofit cost is the job value declared on the ATTOM permit
     qui count if `g' & elevated_ex_ante
     mat S[8, `j'] = r(N)
     qui count if `g' & elevation_retrofit == 1

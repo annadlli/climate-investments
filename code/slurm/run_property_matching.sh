@@ -3,8 +3,10 @@
 # Authors: Anna Li
 # Date: 2026-08-25
 #
-# Runs the four matching steps that link Builty elevation permits and ATTOM
+# Runs the four matching steps that link ATTOM elevation permits and ATTOM
 # property records onto the NFIP property universe, for one state.
+# Claude change 10-02: step 3 reads the ATTOM permit file (clean_permits.do) through
+# build/attom_permits.py; the Builty inputs and the attom_builty/ outputs are gone.
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -95,14 +97,14 @@ if [[ -z "${NFHL_ROOT}" ]]; then
     NFHL_ROOT="${NFHL_ROOT:-${DATA}/raw/nfhl/nfhl}"
 fi
 GEOCODE_WORK="${DATA}/build/attom_geocode/${ST}_addr"
-PERMITS="${DATA}/clean/builty_elevations_zipfilled.dta"
+PERMITS="${DATA}/clean/permit_elevations_zipfilled.dta"
 PROPERTIES="${DATA}/clean/nfip_policies_property.dta"
 
 GEOCODED="${OUT_ROOT}/geocoded/${ST}_attom_geocoded.parquet"
 BLOCKGROUPS="${OUT_ROOT}/geocoded/${ST}_attom_blockgroups"
 NFHL="${OUT_ROOT}/nfhl_matches/${ST}_attom_nfhl.parquet"
-PERMITS_OUT="${OUT_ROOT}/attom_builty/${ST}_attom_permits.parquet"
-BUILTY="${OUT_ROOT}/attom_builty/${ST}_attom_builty.parquet"
+PERMITS_OUT="${OUT_ROOT}/attom_permits/${ST}_permits_matched.parquet"
+LINKED="${OUT_ROOT}/attom_permits/${ST}_attom_permits.parquet"
 FINAL="${OUT_ROOT}/nfip_attom_property/${ST}_nfip_attom_property.parquet"
 
 
@@ -129,7 +131,7 @@ require() {
 }
 
 # output folders; the Python scripts do not create them (09-07)
-mkdir -p "${OUT_ROOT}/geocoded" "${OUT_ROOT}/nfhl_matches" "${OUT_ROOT}/attom_builty" \
+mkdir -p "${OUT_ROOT}/geocoded" "${OUT_ROOT}/nfhl_matches" "${OUT_ROOT}/attom_permits" \
          "${OUT_ROOT}/nfip_attom_property" "${TMP}"
 
 echo "=== ${STU}: matching pipeline ==="
@@ -169,9 +171,9 @@ if step_needed "2/4" "${NFHL}"; then
 fi
 
 # -----------------------------------------------------------------------------
-# 3. Builty permits -> ATTOM.
+# 3. Elevation permits -> ATTOM.
 #
-# Permits are address-matched against the geocoded ATTOM panel from step 1, the
+# Permits join on their ATTOMID, else are address-matched against the geocoded ATTOM panel from step 1, the
 # one ATTOM file everything after step 1 reads. The panel keeps every raw
 # property that has an assessment year (geocoded or not: the block-group join is
 # a LEFT JOIN), and a permit can only match a record with an assessment year
@@ -180,16 +182,14 @@ fi
 # permits are then collapsed to property level and left-joined onto the
 # ATTOM--NFHL master, so every property survives.
 # -----------------------------------------------------------------------------
-if step_needed "3/4" "${BUILTY}"; then
+if step_needed "3/4" "${LINKED}"; then
     require "${GEOCODED}" "${PERMITS}" "${NFHL}" "${NFHL_ROOT}"
-    echo "[3/4] Builty--ATTOM address match, joined onto the ATTOM--NFHL universe"
-    # Builty geocode backfill added (09-05 change)
-    "${PYTHON}" "${CODE}/attom_builty.py" \
+    echo "[3/4] Permit--ATTOM link (ATTOMID, then address), joined onto the ATTOM--NFHL universe"
+    "${PYTHON}" "${CODE}/attom_permits.py" \
         --state "${STU}" --data "${DATA}" --permits "${PERMITS}" \
         --attom "${GEOCODED}" --attom-nfhl "${NFHL}" --nfhl "${NFHL_ROOT}" \
-        --out "${BUILTY}" --permits-out "${PERMITS_OUT}" \
-        --tmp "${TMP}/builty" --memory "${MEMORY}" --threads "${THREADS}"
-        # Claude change 09-15: attom_builty.py runs the loose rungs by default (--exact-only to compare)
+        --out "${LINKED}" --permits-out "${PERMITS_OUT}" \
+        --tmp "${TMP}/permits" --memory "${MEMORY}" --threads "${THREADS}"
 fi
 
 # -----------------------------------------------------------------------------
@@ -202,11 +202,11 @@ fi
 # tier requires and would otherwise drop.
 # -----------------------------------------------------------------------------
 if step_needed "4/4" "${FINAL}"; then
-    require "${PROPERTIES}" "${GEOCODED}" "${BUILTY}"
+    require "${PROPERTIES}" "${GEOCODED}" "${LINKED}"
     echo "[4/4] Assign SFR ATTOM candidates to NFIP properties"
     "${PYTHON}" "${CODE}/nfip_attom.py" \
         --state "${STU}" --properties "${PROPERTIES}" --attom "${GEOCODED}" \
-        --attom-nfhl-builty "${BUILTY}" \
+        --attom-nfhl-permits "${LINKED}" \
         --use-codes 376,380,382,383,385,386 \
         --add-tier-15 \
         --out "${FINAL}" --tmp "${TMP}/assignment" \

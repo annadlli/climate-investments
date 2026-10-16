@@ -1,0 +1,351 @@
+% Claude change 09-24: new file. Slide-by-slide speaker and defense notes for the
+% 2026-09-24 deck (Downloads/Flooding (2).pdf). Numbers checked against
+% notes/slides_2026-09-21/slides.tex comments, output/tables/es_elevation.xlsx and
+% descriptives/summary_table.do.
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\setlist{itemsep=2pt,topsep=3pt}
+\newcommand{\slide}[2]{\section*{Slide #1. #2}\addcontentsline{toc}{section}{Slide #1. #2}}
+\newcommand{\say}{\paragraph{What to say.}}
+\newcommand{\why}{\paragraph{Why it is there.}}
+\newcommand{\qa}{\paragraph{Likely questions and answers.}}
+\newcommand{\watch}{\paragraph{Watch out.}}
+
+\title{Speaker and defense notes\\ \large Optimal Subsidy Design in Natural Disaster Insurance Markets: Evidence from NFIP}
+\author{Notes for Anna Li, prepared 24 September 2026}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent These notes go through the deck one slide at a time. For each slide they give the meaning of every line, why the line is on the slide, and the questions a seminar audience is likely to ask with an answer you can give. Numbers that come from your own data are traced to the script that produced them so you can say where they come from. A short list of inconsistencies between the deck and the repository is at the end; fix those before you present or be ready to explain them.
+
+\tableofcontents
+\bigskip
+
+\section*{The one-paragraph story}
+The National Flood Insurance Program (NFIP) subsidizes premiums for affordability. That subsidy has a side effect: it weakens the private return to protecting the house, because a protected house does not get a cheaper policy when policies are already cheap. The reform toward risk-based pricing restores that return but prices households out of coverage. A third instrument, subsidizing the protective investment itself, keeps people insured and cuts claims directly. The paper asks which mix of premium subsidy and investment subsidy a public insurer should choose, builds a household model of the two decisions (insure, elevate), estimates its pieces on NFIP microdata linked to permits, grants and tax records for Florida, Louisiana and Texas, and uses it to compare the status quo, full-risk pricing, and reallocations of the subsidy budget. The reduced-form evidence so far: elevating a house does not lower its NFIP premium, and it lowers claims by an amount whose present value is well below the cost of elevating.
+
+\slide{1}{Title}
+\say This is joint work with Vendela Norman at NYU Stern. The title states the contribution: it is a policy design paper (which subsidy), in a natural disaster insurance market, using the NFIP as the setting and the data source.
+
+\qa If asked ``what is the one-line contribution'': we estimate a joint model of flood insurance take-up and home elevation and use it to find the welfare-maximizing split between premium subsidies and elevation subsidies.
+
+\slide{2}{Motivation}
+\say Four steps. First, disaster losses are large and growing. Second, adapting the housing stock is the way to lower them, and it is expensive. Third, the market under-provides that adaptation, and one reason is moral hazard from insurance: an insured owner bears only part of the loss, so has less reason to invest. Fourth, the fix is not obvious, because the instruments that restore the investment incentive (charging full-risk premiums) hurt the households the subsidy was meant to protect. That is why the problem is ``second best'' and why it trades efficiency against distribution.
+
+\why The 32 billion and 26 percent figures are from Wing et al.\ (2022, Nature Climate Change), a nationwide flood model that puts average annual U.S. flood losses at about 32 billion dollars in 2020 and projects a rise of about 26 percent by 2050 from climate change alone, holding the housing stock fixed. Use it as a scale statement, not as your own estimate.
+
+\qa
+\begin{itemize}
+\item ``Moral hazard from insurance is one reason. What are the others?'' Credit constraints (a lift costs more than a year of income), misperceived risk, expectation of disaster aid, and the fact that some of the benefit accrues to a future owner. The model captures the aid channel through $f$ and the perception channel through $\phi$; the credit channel is in the non-monetary cost $\kappa$.
+\item ``Why call it second best?'' Because the first best (full-risk premiums plus lump-sum transfers to poor households) is not available: the government cannot tell who is deserving, and the political constraint is affordability of the premium itself. Given that constraint, you are choosing among distorted instruments.
+\item ``Where are distributional concerns in the welfare function?'' Honestly: the current welfare expression on slide 21 is utilitarian without weights. Say the distributional side enters through the budget constraint in counterfactual 3 (same spending) and that welfare weights are a planned extension. Do not claim the model already does it.
+\end{itemize}
+
+\slide{3}{Setting}
+\say The insurance side: the NFIP is the U.S. flood insurer, over 4.7 million policies and 1.3 trillion dollars of coverage, the largest disaster insurance program in the world. Premiums are held below risk by statute, on affordability grounds, by roughly half on average. The reform (Risk Rating 2.0) is moving prices toward risk. The adaptation side: home elevation is the main property-level protection, it is mandatory for new construction in the high-risk zone, and retrofitting an existing house works but is expensive.
+
+\why This slide maps the abstract words of slide 2 onto concrete objects: insurance is NFIP, adaptation is elevation, the subsidy is the statutory discount, the reform is the moving price.
+
+\qa
+\begin{itemize}
+\item ``Where does 4.7 million and 1.3 trillion come from?'' Tabulated on the raw OpenFEMA policy file for 2025: 4.66 million policies, 1.29 trillion of building plus contents coverage. FEMA's own reporting says 4.7 million and 1.28 trillion. Your three states are 61 percent of both.
+\item ``Where does 50 percent below cost come from?'' Gruber and Solomon (2026, NBER working paper 35408), on their FOIA panel of 3.5 million policies priced under Risk Rating 2.0: mean billed premium before the reform 944 dollars against a full-risk premium of 1,739 dollars, so the average policy paid about 54 percent of full risk. It is a nationwide, all-zone average. Inside the high-risk zone the pre-FIRM discount was larger. Do not cite the CBO 2017 report for this number; it does not support it.
+\item ``Why elevation and not other adaptation?'' It is the protection FEMA funds, the one the building code mandates, the one that appears in the policy file (the elevated-building indicator), and the one that enters the premium. Floodproofing, relocation and buyouts exist but are not in the pricing formula in the same way.
+\item ``Is 150,000 the right cost?'' It is the median declared cost on your Florida and Texas permits (145,900 on slide 11). FEMA grant projects run higher, roughly 160,000 to 225,000 per home. See the note on slide 8 below: the deck says 190,000 to 225,000 there, so pick one range and use it everywhere.
+\end{itemize}
+
+\slide{4}{Research Question}
+\say The insurer has two levers: it can subsidize the premium, or it can subsidize the investment. Three forces decide the mix. A premium subsidy keeps insurance affordable, which is good for risk sharing, but it mutes the return to elevating, because a cheap policy cannot get much cheaper. Risk-based pricing restores that return but pushes households out of coverage, which raises uninsured losses and ex post aid. An investment subsidy keeps people insured and lowers claims directly, but it costs money and pays for elevations some households would have done anyway. The paper builds a joint model of the insure and elevate decisions and estimates it on NFIP microdata.
+
+\why This is the slide the discussant will come back to. Every later slide either estimates one of these three forces or computes the trade-off between them.
+
+\qa
+\begin{itemize}
+\item ``Is this just the preventive-care question from health economics?'' Yes in structure (slide 5), with two differences that make the answer different: the insurer here is the government, which also pays the ex post aid, so the externality is internal to one budget; and the investment is a one-time irreversible capital cost rather than a flow of care.
+\item ``Why would a subsidy on investment be better than just fixing the price?'' Because fixing the price has a coverage cost. If demand is elastic, full-risk pricing loses insured households whose losses then land on disaster aid. The investment subsidy attacks the claims without losing the insured base. Which one wins is quantitative, and that is what the model is for.
+\item ``What is new relative to Gruber and Solomon?'' They estimate demand and take the mitigation margin as small. You bring the mitigation margin in as a choice, with its own data (permits, grants, costs), and let the planner subsidize it.
+\end{itemize}
+
+\slide{5}{Related Literature}
+\say Two strands. Strand one is subsidized disaster insurance and adaptation. Wagner (2022) estimates flood insurance demand and finds low willingness to pay, and that houses built under elevation mandates are less likely to insure; Hovekamp and Wagner (2023) use those mandates to measure the damage reduction from elevation. Gruber and Solomon (2026) show that premium subsidies can remain optimal once you count the spillover onto disaster aid. Obolensky (2024) argues subsidies slow long-run adaptation of the housing stock and that targeted subsidies restore it. Strand two is preventive care in health insurance. Ellis and Manning (2007) and Newhouse (2006) show the insurer should cover prevention when the insured ignore its effect on future premiums. Chandra, Gruber and McKnight (2010) and Starc and Town (2018) show that cost sharing on upstream care raises downstream claims that are often paid by a different payer. The root of both strands is Ehrlich and Becker (1972): market insurance and self-protection can be complements rather than substitutes.
+
+\why You need strand one to show you know the flood papers, strand two to show the economic mechanism has a pedigree, and Ehrlich and Becker to say the complementarity between insurance and protection is the theory you are testing.
+
+\qa
+\begin{itemize}
+\item ``Ehrlich and Becker say self-insurance substitutes for market insurance. Why complements?'' They distinguish self-insurance (reducing the size of the loss) from self-protection (reducing the probability). Self-insurance and market insurance are substitutes. Self-protection and market insurance can be complements when the premium responds to protection. Elevation is closer to self-insurance (it lowers damage per flood), so the complementarity here comes only through the premium channel, and your slide 15 shows that channel is shut off. That is the point of the paper.
+\item ``What does Hovekamp and Wagner find on the return to elevation?'' They estimate large damage reductions for mandated elevations and evaluate elevation with a long horizon and a low rate (80 years at 4 percent). Your reduced-form number on slide 16 is much smaller; the difference is retrofits of old houses versus elevation at construction, insured claims versus total damage, and the horizon and discount rate.
+\end{itemize}
+
+\slide{6}{Related Literature (Continued)}
+\say Three more strands. The disaster insurance puzzle: take-up is low even in high-risk zones (Kunreuther and Pauly 2004; Wagner 2022), and misperception and salience explain the pattern, with take-up rising after a flood and decaying (Gallagher 2014; Kousky 2010; Xu and Box-Couillard 2024). The Samaritan's dilemma: expected relief crowds out insurance demand, in floods (Raschky et al.\ 2013; Kousky, Michel-Kerjan and Raschky 2018; Gruber and Solomon 2026) and in crop insurance (Deryugina and Kirwan 2018; Philippi and Schiller 2024). Moral hazard in disaster insurance: on the location margin, insurance stimulates development and migration into floodplains (Fabian 2024; Peralta and Scott 2024; Browne et al.\ 2019); on the mitigation margin, the measured effect of insurance prices on risk reduction is small (Hudson et al.\ 2017; Kousky 2019; Gruber and Solomon 2026).
+
+\why Each strand justifies a piece of the model: the puzzle motivates the friction $\phi$ on slide 20; the Samaritan's dilemma motivates the aid share $f$ on slide 18; the moral hazard strand is the mitigation margin you are estimating and the location margin you are holding fixed.
+
+\qa
+\begin{itemize}
+\item ``The literature says the mitigation response to price is small. Does that not kill your paper?'' It is the reason for the paper. If prices barely move mitigation, then risk-based pricing is a weak tool for adaptation, and the question is whether a direct subsidy does better. Also, those papers look at a price change that in practice did not change the premium an elevated house pays (slide 15), so a small response is what you would expect.
+\item ``You hold location fixed. Is that a problem?'' For the counterfactuals, yes, in the long run. The model is about existing houses in the high-risk zone over the next few decades; entry and exit are shut down. Say so and cite Fabian and Peralta and Scott as the papers that do that margin.
+\end{itemize}
+
+\slide{7}{The National Flood Insurance Program}
+\say Institutional detail in three lines. The NFIP is FEMA-run and federally backed, writes over 90 percent of residential flood policies, and its cumulative claims have left it more than 20 billion dollars in debt to the Treasury. Flood Insurance Rate Maps (FIRMs) define the zones and the Base Flood Elevation (BFE), the height of the 1-in-100-year flood. Houses built after a community's first FIRM (post-FIRM) must have their lowest floor at or above the BFE; houses built before it (pre-FIRM) are exempt from that rule and were charged subsidized premiums that ignore their elevation. The pricing reforms: Biggert-Waters (2012) ordered the pre-FIRM subsidies phased out; HFIAA (2014) slowed the phase-out to 5 to 18 percent a year; Risk Rating 2.0 (2021) replaced zone-based rating with a property-level full-risk premium. Under both, a subsidized policy converges to its full-risk price along a glide path with annual increases capped between 5 and 18 percent.
+
+\why Pre-FIRM and post-FIRM are the two columns of every table you show later. The glide path is your source of premium variation for estimating demand (slide 24). The debt is why the subsidy is a live policy question.
+
+\qa
+\begin{itemize}
+\item ``Why is pre-FIRM versus post-FIRM the right split?'' Because it is the split in both the subsidy rule and the elevation rule. Pre-FIRM houses got the subsidy and were not required to be elevated; post-FIRM houses were built elevated and rated closer to risk. So the pre-FIRM group is where the retrofit decision lives and where the subsidy mutes it.
+\item ``How large is the debt?'' About 20.5 billion after Congress forgave 16 billion in 2017; it has been above 20 billion since. Say ``more than 20 billion'' and do not be more precise.
+\item ``Do premiums actually follow the glide path?'' Yes, for pre-FIRM subsidized policies the annual increase is a statutory floor of 5 percent and a cap of 18 percent (25 percent for some non-primary and business properties). Under Risk Rating 2.0 the increase toward the full-risk price is capped at 18 percent a year. That gives within-policy price changes that are not driven by the household's own risk, which is what the demand estimation uses.
+\end{itemize}
+
+\slide{8}{Home Elevations}
+\say Elevating is cheap when the house is built and expensive afterwards: a foot of extra height on a new house adds a fraction of a percent to a percent and a half of construction cost, while lifting an existing house costs on the order of 190,000 to 225,000 dollars. What drives the retrofit cost is the foundation type (slab foundations must be cut and lifted), the size and weight of the house, and the required height. FEMA funds retrofits through Hazard Mitigation Assistance: HMGP is post-disaster money run by the state emergency agency; FMA is financed out of NFIP premiums and targets repetitive-loss homes. The totals are modest against the problem: in twenty years FMA has elevated about 3 percent of the roughly 181,000 repetitive-loss properties on the NFIP list.
+
+\why The cost gap between ex ante and ex post is why the mandate for new construction is close to free and the retrofit decision is the hard one. The grant programs are the existing elevation subsidy, and their small scale is why $s_e \approx 0$ in the status quo on slide 22. Slab foundation, footprint and county are the predictors used for the cost projection on slide 24.
+
+\qa
+\begin{itemize}
+\item ``Where do the grant counts come from?'' From the cleaned HMA file, counting only approved, obligated or closed projects. The raw Mitigated Properties file logs properties for applications that were never funded, so it overstates: Louisiana shows 7,400 raw but 5,658 funded. See the watch-out below on the exact numbers.
+\item ``What is a repetitive-loss property?'' NFIP's definition: two or more paid claims of more than 1,000 dollars in any ten-year period. Severe repetitive loss is four or more claims each over 5,000 dollars, or two claims whose sum exceeds the building value. Both flags are in your data (slide 11).
+\item ``Why do so few people take the grants?'' The grant covers 75 percent of cost (up to 100 percent for severe repetitive loss under FMA); the owner pays the rest, the process takes years, and the state must apply. The non-monetary cost $\kappa$ in the model is meant to absorb this.
+\end{itemize}
+
+\watch The deck says ``about 13,000 single-family elevations and 2.2 billion'' for HMGP and ``5,400 elevations and 1.1 billion'' for FMA. The repository's slide source, built from the cleaned grant file, says HMGP 8,868 properties and 2.21 billion, FMA plus SRL 5,268 properties and 1.04 billion. If the 13,000 is from another tabulation, know which; otherwise quote 8,900 and 5,300. Also, slide 3 says a retrofit costs about 150,000 and slide 8 says 190,000 to 225,000. Say on slide 3 ``median declared permit cost 146,000; FEMA grant projects run 160,000 to 225,000'' and the two slides agree.
+
+\slide{9}{Data Sources}
+\say Five sources, linked at the property level, for Florida, Louisiana and Texas over 2009 to 2025. NFIP: the universe of policy transactions plus the claims and multiple-loss files, giving premium, coverage, zone, post-FIRM status, repetitive-loss flags, and claims by year. Addresses are redacted, so a property is identified by construction year, census block group and policy origination date. FEMA HMA: elevation grants, with program, cost and number of properties. Builty: building permits scraped from municipal feeds; elevations are identified by text analysis of the permit description, and retrofits are separated from elevated new construction. ATTOM: tax assessor records by property and year, giving value and footprint. NFHL: FEMA's flood map layer, giving the zone of the ATTOM parcel.
+
+\why The identification of retrofits is the hardest data step in the paper, and this is where you explain it. NFIP has no address, ATTOM has an address and a location, Builty has an address and a permit. So the chain is permit to ATTOM by address, ATTOM to NFIP by cell (block group, flood zone, construction year), and the linked record carries the elevation year onto the insurance panel.
+
+\qa
+\begin{itemize}
+\item ``How do you match NFIP to a property without an address?'' Within a cell defined by census block group, flood zone and construction year, an NFIP policy with a given origination date is matched to an ATTOM single-family property in the same cell, on either the 2010 or the 2020 block-group codes because NFIP switched vintages. Inside a cell, houses with a Builty permit are ranked first, and houses insured in the permit year are ranked first among those, so an elevated house is matched when its cell has any NFIP policy. Louisiana's ATTOM file lacks the construction year for 59 percent of single-family properties, so most Louisiana links use block group and zone without a year.
+\item ``How good is the match?'' On the 15 September run, the address match keeps 86 percent of Florida permits, 92 percent of Louisiana and 95 percent of Texas; of the screened retrofit properties, 1,465 (FL), 1,313 (LA) and 901 (TX) land on an NFIP property, 3,679 in all. A house is lost mostly when its cell has no NFIP policy at all, which is expected, because uninsured houses are outside the universe.
+\item ``How do you know a permit is an elevation and not new construction?'' Text classification of the permit description (the appendix word cloud shows the vocabulary: raise, elevate, existing, foundation, slab), then a rule that separates ``elevate existing'' from ``new elevated construction'' and drops the latter. The ATTOM construction year is a second check.
+\item ``Is there a false-positive problem in the text match?'' Some. That is why the event study also uses two other markers of elevation that do not depend on text: the NFIP elevated-building indicator flipping from 0 to 1 within a policy, and an Increased Cost of Compliance (ICC) payment, which is the NFIP claim item that pays for elevation after a flood.
+\item ``Why 2009 to 2025?'' 2009 is the first year of the OpenFEMA policy file with the fields you need; 2025 is the last complete policy year.
+\end{itemize}
+
+\slide{10}{Why These Three States}
+\say The bar chart counts elevated single-family properties by state and by source across twenty states: Builty retrofit permits in red, HMGP-funded in light blue, FMA-funded in dark blue, and NFIP policies whose elevated flag flips from 0 to 1 in grey. Louisiana is large on both the permit and the grant side; Florida has the most permits; Texas is in between. New Jersey is large on grants (Sandy) but is not in the sample. On the analysis sample the rates are 3.0 (LA), 2.3 (TX) and 1.1 (FL) elevation events per 1,000 insured high-risk-zone homes.
+
+\why The audience will ask why not the whole country. The answer is: these are the states where all four sources are thick, and where the permit feeds are good enough to identify retrofits. The chart shows that.
+
+\qa
+\begin{itemize}
+\item ``Why not New Jersey and New York?'' Sandy elevations are mostly grant-funded and concentrated in a few years, the permit feeds are thinner, and the two-vintage block-group match was built and validated on the three Gulf states. New Jersey is a natural extension. The link files for New Jersey exist from the 7 September run.
+\item ``Are these raw counts or the analysis sample?'' Raw counts, each source in its own file, all twenty states; HMA counts funded projects only. The like-for-like rate on the analysis sample is the per-1,000 number.
+\item ``What is an NFIP flag flip?'' The policy file carries an elevated-building indicator. When it goes from 0 to 1 for the same property between two policy years, and the change is not the panel's first transition (2010 is excluded because 2009 is the first policy year), that is a re-rating after an elevation. It is a source of elevation events that does not depend on permit text.
+\end{itemize}
+
+\slide{11}{Summary Statistics}
+\say The sample is NFIP-insured single-family properties inside the Special Flood Hazard Area in the three states, 2009 to 2025, 3.2 million properties, split roughly half pre-FIRM and half post-FIRM. Everything is in 2023 dollars. Row by row: the median annual premium is 644 dollars, higher for pre-FIRM (888) than post-FIRM (574) because pre-FIRM houses are riskier even after the subsidy. Claims paid over premiums collected is 1.07 overall, 1.27 pre-FIRM and 0.82 post-FIRM; so pre-FIRM policies lose money and post-FIRM policies make money, which is the subsidy in one number. The share of property-years with a paid claim is 1.2 percent, twice as high pre-FIRM. Among properties that ever claimed, the median cumulative claim is 82,600 dollars, rising to 104,400 among repetitive-loss and 122,300 among severe-repetitive-loss properties. Elevated ex ante means the property was flagged elevated in its first policy year with no in-sample elevation event: 450,281 properties, of which 277,263 are post-FIRM (mandated) and 173,018 pre-FIRM. Elevation retrofit is the harmonized in-sample event (Builty permit, NFIP flag flip, or ICC payment with continued coverage): 4,993 properties, 3,543 pre-FIRM. The median declared retrofit cost is 145,900 dollars, from the Builty declared value on Florida and Texas permits.
+
+\why This table sets the scale of every later number. The loss ratio row is the subsidy; the cumulative-claims rows are the benefit side of elevation; the retrofit-cost row is the cost side; the retrofit count is the sample for the event study.
+
+\qa
+\begin{itemize}
+\item ``Which rows are over property-years and which over properties?'' Premium, loss ratio and the claim share are over property-years; cumulative claims, the elevation counts and the retrofit cost are over properties, measured at the last policy year.
+\item ``Why is the post-FIRM retrofit cost so much lower (43,000 versus 159,000)?'' Small count (1,450 retrofits, fewer with a declared value) and a different kind of project: a post-FIRM house is already at or above the BFE, so a permit that reads as an elevation is often a partial lift, a foundation repair or a freeboard increase. Say the pre-FIRM median is the relevant retrofit cost.
+\item ``Why is the loss ratio above one for pre-FIRM?'' Because pre-FIRM premiums are the subsidized ones and the houses are lower. This is the cross-subsidy inside the program plus the Treasury borrowing.
+\item ``173,000 pre-FIRM houses are elevated ex ante. How, if they were exempt?'' Some were built elevated by local custom (pier foundations along the Gulf), some were retrofitted before 2009, and some are re-rated on an elevation certificate. They are excluded from the retrofit sample because their elevation is not observed as an event.
+\item ``Is 1.2 percent claim frequency consistent with a 1-in-100 zone?'' It is the share of insured property-years with a paid claim, which is above 1 percent because the SFHA contains the 1-in-100 floodplain and everything inside it, and because claims cluster in hurricane years.
+\end{itemize}
+
+\watch The property count reads 3,201,652 on this slide and 3,291,652 in the repository slide source; the pre-FIRM loss ratio reads 1.27 here and 1.26 there. One of the two is a typo. Check the summary-table workbook and make the deck match it.
+
+\slide{12}{Elevation Costs vs.\ Cumulative Claims}
+\say Two histograms on the same log scale. Left: the distribution of declared elevation cost across permitted homes; it is wide, from about 10,000 to about 1 million, with the median near 146,000 (the dashed line) and a mass between 200,000 and 500,000. Right: the distribution of cumulative NFIP claims paid across properties that ever claimed, peaking just under 100,000. The two distributions overlap: for many claimants the claims already paid are of the order of an elevation. And both are widely dispersed, so the return to elevating differs a lot across homes.
+
+\why This is the informal version of the paper's decision rule. If claims paid were tiny relative to elevation cost, elevating would never pay and there would be no design question. If they were always larger, everyone would elevate. The overlap says the decision is close for a large group, which is where a subsidy can move behavior.
+
+\qa
+\begin{itemize}
+\item ``What is the sample for each panel?'' One row per property from the analysis file: cumulative claims at the last policy year among claimants; Builty declared cost among permitted homes; both with a 1,000 dollar display floor.
+\item ``Why does the claims histogram pile up just under 100,000?'' The building coverage cap was 250,000 and older policies carried lower limits; many total losses on modest Gulf houses settle in the 50,000 to 150,000 range. It is not a data artifact.
+\item ``Do declared permit values equal actual cost?'' They are what the applicant declares for the permit fee, so they can be understated for fee reasons or overstated when the permit bundles other work. Louisiana permits do not carry a value at all, which is why the cost side is Florida and Texas.
+\end{itemize}
+
+\slide{13}{Homes that Elevate Already Claimed About Half the Cost}
+\say Each point is a permitted home with a declared cost and at least 1,000 dollars of claims paid before the permit; the horizontal axis is cumulative claims before elevation, the vertical axis is the elevation cost, both log scale, with the 45-degree line dashed. Points above the line elevate at a cost higher than what they had already claimed; points below had already claimed more than the elevation costs. Most homes are above the line, typically a few times their prior claims, and the title's ``about half'' is the typical ratio of prior claims to cost. A minority are below the line: one flood had already cost more than lifting the house.
+
+\why It shows selection into elevation. Homes that elevate are homes that have already been paid large claims, which matters for the event study (they have a flood in their pre-period) and for the model (the decision responds to realized damage, not only to expected damage).
+
+\qa
+\begin{itemize}
+\item ``Homes with no prior claim are missing. How many?'' They are not shown because the log axis needs a positive value; the script counts them. Be ready with the count from the histogram script (the note line in the code reports it). Say that a meaningful share of permitted homes had no prior NFIP claim, which is consistent with grants and post-flood rebuilding that did not go through an insured claim.
+\item ``Is ``about half'' the median ratio or the mean?'' It is a reading of the cloud around the line; if pressed, say the median prior claim among these homes is on the order of half the median cost, and offer the exact ratio in the paper.
+\item ``Does this not say elevation is a response to a flood rather than to expected risk?'' Yes, and that is the point of holding the permit year against a flood year in the event study on slide 14. In the model it is the realized loss $\xi_t$ entering the year's consumption; a household that has just paid a large uninsured loss updates its expected damage $D_i$.
+\end{itemize}
+
+\slide{14}{Event Study Design}
+\say For property $i$ in county $c$, flood zone $z$ and year $t$, regress the outcome on indicators for years relative to the elevation permit, from five years before to five years after, omitting the year before the permit, with a property fixed effect and a county by flood zone by year fixed effect. The outcomes are the annual premium and the paid claim in 2023 dollars. The property effect removes permanent differences between houses. The county by zone by year effect removes anything common to the county and zone in that year: local floods and the move to risk-based pricing, so a permitted home is compared with never-elevated homes in the same county, zone and year. Controls are homes never elevated by any source, so staggered permit timing does not contaminate the coefficients. Standard errors are clustered by county.
+
+\why This is the reduced-form evidence for the two forces on slide 4: does elevation change the premium (the muted return), and does it change claims (the damage reduction $D_i(0)-D_i(1)$ that the model needs on slide 24).
+
+\qa
+\begin{itemize}
+\item ``What is the sample?'' Homes matched to ATTOM, in counties with at least one permit. Treated: 1,573 homes with a Builty permit in 2012 to 2022 (cohorts with enough years on both sides); 490 flag-flip and 741 ICC events are set aside for the by-source appendix. Controls: a 10 percent random draw of never-elevated homes, 235,400 homes, in 143 counties.
+\item ``Is this a standard two-way fixed effects event study?'' No. Each coefficient is the cohort-share-weighted average of cohort-specific coefficients, in the spirit of Sun and Abraham (2021), with never-treated homes as the only controls, so the negative-weighting problem does not arise.
+\item ``What is the identifying assumption?'' Absent the permit, outcomes of permitted homes would have moved in parallel with never-elevated homes in the same county, zone and year.
+\item ``Is it plausible? Permits follow floods.'' It is the main threat. The omitted year, $k=-1$, is usually a flood year, so the pre-period is not flat relative to it. This is why you read the claims plot as pre-average against post-average rather than each coefficient against zero (see slide 16). A pooled two-way fixed effects joint test of the pre-period coefficients gives $p = 0.12$ for the premium, $0.09$ for the claim amount and $0.01$ for the probability of a claim, so the pre-trend in the probability of a claim is real. Own it.
+\item ``Why bin the endpoints at plus or minus five?'' Outside the window there are too few home-years; binning keeps them in the regression without estimating a separate coefficient.
+\item ``Why cluster by county?'' Floods and the ATTOM-NFIP match are both at the county level or below; the county is the coarsest level at which treatment is assigned.
+\end{itemize}
+
+\slide{15}{Elevating Does Not Lower Premiums}
+\say The premium coefficients are flat. Before the permit they are within plus or minus 50 dollars of zero with wide intervals. After the permit, years zero to four are between plus 3 and plus 22 dollars with standard errors of 24 to 49 dollars, so the interval excludes a fall of more than about 100 dollars a year against a median premium of 888 for pre-FIRM homes. Year five is minus 105 with standard error 54, on a thinner sample. So a household that spends 150,000 dollars lifting its house sees no reduction in what it pays for flood insurance.
+
+\why This is the first of the two key forces on slide 4, measured. The premium subsidy has muted the premium return to elevation to zero. It is also why the mitigation literature finds small price effects: the price of an elevated house was not lower.
+
+\qa
+\begin{itemize}
+\item ``Why would a premium not fall? Elevation is in the rating formula.'' Three institutional reasons. Under the old rating, a pre-FIRM subsidized policy paid a flat subsidized rate that ignored elevation; a household had to submit an elevation certificate and ask to be re-rated, and the elevated full-risk rate was often above the subsidized rate it already paid, so nobody asked. Under Risk Rating 2.0 the first-floor height enters pricing, but a policy on a glide path keeps its capped increases; elevation lowers the target, not the current bill, so the change shows up years later. And ICC-funded elevations after a flood keep the same policy, which is not re-rated until renewal.
+\item ``Is the effect zero or just imprecise?'' The point estimates are within 25 dollars of zero for five years with standard errors under 50, so it is a reasonably tight zero on the scale of a 600 to 900 dollar premium. Year five is negative and marginally significant, which is consistent with a delayed re-rating, but it is one coefficient on a thin cohort.
+\item ``Is this on the full-risk or the subsidized premium?'' On the premium the household actually pays. The rate-manual full-risk premium is what the model uses for $p_i(0)-p_i(1)$ on slide 24; this slide shows the paid premium, which is the one that enters the household's decision.
+\end{itemize}
+
+\slide{16}{Claims Around the Permit}
+\say The claim coefficients are all negative relative to the omitted year, because the omitted year is the flood year that triggered the permit. Five years before: minus 16,500; four before: minus 12,500; three and two before: minus 7,400 and minus 8,900. After the permit, years zero to five sit between minus 10,600 and minus 13,700. So the pre-period average is about minus 11,000 and the post-period average about minus 12,000: elevating lowers annual claims by about 1,000 dollars a year relative to the years before the flood. Over thirty years at a discount factor of 0.93 (a 7 percent rate, FEMA's benefit-cost rate), a saving of 1,000 a year has a present value of about 13,000 dollars, a tenth of the 146,000 dollar median cost.
+
+\why This is the second key force: the damage reduction from elevation, which is the private benefit. The number matters because it is small. If insured claims are all a household saves, elevation does not pay privately, and a large subsidy or a large non-monetary benefit is needed to explain the elevations you do see.
+
+\qa
+\begin{itemize}
+\item ``The plot shows minus 11,000 after the permit. Why do you say 1,000?'' Because the reference year is a flood year. Every coefficient measures the difference from that flood year, so all of them are large and negative. The treatment effect is the difference between the post-period coefficients and the pre-period coefficients, about 1,000 a year. Say that explicitly before someone else does.
+\item ``How did you get 13,000?'' $1{,}000 \times \sum_{t=0}^{29} 0.93^t = 1{,}000 \times (1-0.93^{30})/0.07 \approx 12{,}700$, rounded to 13,000. Thirty years is a conventional structure life for a benefit-cost analysis; 7 percent is the OMB and FEMA rate. At 4 percent over 80 years, as Hovekamp and Wagner use, the same flow is worth about 24,000; still far below cost.
+\item ``Why is the effect so small compared with the damage-reduction literature?'' Five reasons, give two or three. Claims are capped (250,000 building) and exclude contents on many policies, so insured claims understate damage. The post-permit window is short and had few floods for many cohorts, so the post-period estimate is noisy (standard errors of 5,000 to 7,000). Retrofits of old Gulf houses are modest lifts, not the full-BFE construction of a mandated house. Mean reversion: a home that elevates after a big claim would have had lower claims afterwards regardless. And the comparison is against never-elevated neighbors who also received aid and rebuilt.
+\item ``What does the same-flood design say?'' The repository version of this deck has an alternative design: restrict to flood county-years and compare permitted homes before and after the permit with never-elevated homes in the same county, zone and year. Before the permit they claim 40,600 dollars more than their neighbors; after, 700 less; the difference is 41,300 (standard error 9,800) per flood year. Flood years are 7.1 percent of home-years, so 2,900 a year, a present value of 36,000, a quarter of the median cost. Both designs say private claim savings are well below cost; the same-flood design gives a larger and more precise number, and you can offer it if the audience distrusts the event study's reference year.
+\item ``Why is the pre-trend in the probability of a claim significant?'' Because permitted homes had a rising claim history before the flood that triggered the permit; that is the selection on slide 13. The claim-amount pre-trend is marginal ($p = 0.09$).
+\end{itemize}
+
+\slide{17}{Model Overview}
+\say Two agents: households and the planner, which is the NFIP. Each year a household chooses whether to insure, a zero-one choice, and whether to elevate, a one-time irreversible investment. Elevating has a monetary cost $c_i$ and a non-monetary cost $\kappa_i$. The NFIP has two instruments: a premium subsidy $s_p$ that shifts the premium schedule, and an elevation subsidy $s_e$ between zero and one that covers a share of the monetary cost.
+
+\why It is the formal statement of slide 4. Two choices, two instruments.
+
+\qa
+\begin{itemize}
+\item ``Why is insurance zero-one?'' Coverage amounts vary, but most single-family policies carry building coverage near the cap or near the mortgage balance, and the extensive margin is where the take-up puzzle lives. The cap enters through slide 23.
+\item ``Why irreversible?'' You cannot un-elevate a house. Irreversibility with an annual decision means there is an option value to waiting, which the model handles by comparing the annualized cost against the annual gain (slide 19).
+\item ``What is $\kappa$?'' Everything about elevation that is not the contractor's bill: months out of the house, stairs, the look of the house, the grant paperwork, and financing frictions for households that cannot borrow. It is what rationalizes why homes with a large monetary gain do not elevate.
+\end{itemize}
+
+\slide{18}{Household Problem}
+\say Primitives: income $y_i$, underlying flood risk $r_i$, house value $v_i$. Loss in year $t$ is $L(\xi_t; r_i, v_i, e_i)$: a random realization $\xi_t$ scaled by risk, value and elevation status, with expectation $D(r_i, v_i, e_i)$. The premium $p$ depends on the same three things and on the subsidy. $\theta$ is the share of losses insurance covers; $f$ is the share of uninsured losses that ex post aid covers. Consumption in year $t$ is income, minus the premium if insured, minus the uninsured part of the loss, which is $(1-\theta)$ of it if insured and $(1-f)$ of it if not, minus the cost of elevating in the year the household elevates, which is the unsubsidized share of the monetary cost plus the non-monetary cost. The household chooses the insurance and elevation paths to maximize expected discounted utility of consumption, with $u$ increasing and concave, so the household is risk averse.
+
+\why This is the whole model in one line. The two policy instruments enter in two places: $s_p$ inside the premium, $s_e$ inside the elevation cost.
+
+\qa
+\begin{itemize}
+\item ``Where is the borrowing constraint?'' Not modeled; consumption absorbs the elevation cost in one year, which with concave utility already makes a lump sum painful. Financing frictions are in $\kappa$.
+\item ``Why does aid cover a share $f$ of uninsured losses only?'' Because FEMA Individual Assistance is reduced by insurance payments and is meant for uninsured loss; the insured household's residual $(1-\theta)L$ is not aid-eligible in the model. This is the Samaritan's dilemma channel: $f > 0$ lowers the value of insuring.
+\item ``Is $\theta$ a parameter or does it come from the contract?'' It comes from the contract on slide 23: full coverage up to the cap, so $\theta$ is effectively one below 250,000 and the household bears the excess.
+\item ``Why no house price capitalization?'' Elevation should raise the house value, and a seller would recover part of the cost. That is a benefit the model leaves out, which biases it toward finding elevation unattractive. Say it is a planned extension using the ATTOM values.
+\end{itemize}
+
+\slide{19}{The Elevation Decision}
+\say Given its insurance status, the household elevates when the annual gain exceeds the annualized net cost. The gain has two parts: the premium saved, $p_i(0)-p_i(1)$, which counts only if the household is insured; and the uninsured loss avoided, the reduction in expected damage $D_i(0)-D_i(1)$ multiplied by the share of the loss the household bears, $(1-\theta)$ if insured and $(1-f)$ if not. The annualized cost is $(1-\beta)$ times the one-time cost $(1-s_e)c_i + \kappa_i$, which converts a lump sum into an equivalent annual flow. The rule is exact under risk neutrality; under CARA the loss term is replaced by its certainty equivalent. So the decision depends on five things: how much the premium falls with elevation, how much damage falls, whether the household is insured and how much is covered, the monetary cost and its subsidy, and the non-monetary cost.
+
+\why This equation is the paper's mechanism. Read the first bracket with slide 15: the premium saved is about zero, so that term is gone. Read the second bracket: an insured household with $\theta$ near one gains almost nothing from lower damage, because the insurer keeps the saving. So an insured, subsidized household has almost no private return to elevating, which is the moral hazard on slide 2. The planner's instruments enter in exactly two places: $s_p$ changes $p_i(0)-p_i(1)$, and $s_e$ lowers the right-hand side.
+
+\qa
+\begin{itemize}
+\item ``Where does $(1-\beta)$ come from?'' A perpetuity: a flow of $x$ per year forever, discounted at $\beta$, is worth $x/(1-\beta)$, so a one-time cost $C$ is equivalent to a flow of $(1-\beta)C$. With $\beta = 0.93$ that is 7 percent of the cost a year, about 10,000 dollars a year for a 146,000 dollar lift, against a gain on slide 16 of about 1,000. That is the private calculation, and it explains why almost nobody elevates without a grant.
+\item ``Why is the gain not the whole damage reduction?'' Because the insured household only bears $(1-\theta)$ of the loss. The other $\theta$ of the saving accrues to the NFIP, which is why the planner may want to pay for it: it is a fiscal externality, the same logic as Chandra, Gruber and McKnight.
+\item ``Is the decision static?'' The comparison is of annual flows, which is the steady-state version of the dynamic problem. Timing (waiting for a flood, for a grant, for a price change) is not modeled and is another reason permits cluster after floods.
+\end{itemize}
+
+\slide{20}{Household Problem: Insurance}
+\say Given elevation status, the household insures if expected utility with insurance (income minus premium minus the uncovered loss) exceeds expected utility without (income minus the loss net of aid), where the uninsured side is scaled by a friction $\phi_i$ that makes the uninsured state look better than it is, standing in for misperceived risk and inattention. That comparison defines a willingness to pay $w_i(e)$, and across households a demand curve: the share insuring at price $p$ is the probability that willingness to pay exceeds $p$. The demand curve is what you estimate, from renewal responses to the glide-path premium changes; utility curvature and the friction are then calibrated to match it. Because elevation lowers losses, it lowers willingness to pay, so take-up falls with adaptation, which is Wagner's finding.
+
+\why Demand is the second input the planner needs. If demand is inelastic, risk-based pricing costs little coverage and the premium subsidy is hard to justify. If it is elastic, full-risk pricing loses many households and the elevation subsidy looks better.
+
+\qa
+\begin{itemize}
+\item ``Why do you need a friction at all?'' Because with any risk aversion and a subsidized premium, everyone in the high-risk zone should insure, and half do not. The friction is the reduced-form stand-in for the take-up puzzle on slide 6.
+\item ``What does the friction do in welfare?'' Welfare on slide 21 is evaluated at true risk, not at the household's perceived risk, so the friction creates a wedge between choice and welfare. A household that under-insures because of $\phi$ is worse off by the risk premium it bears. That is a paternalistic stance; say so if asked.
+\item ``What variation identifies demand?'' Within-policy premium changes on the statutory glide path (Biggert-Waters, HFIAA, Risk Rating 2.0) that depend on the policy's rating class and the year, not on the household's own flood experience, following Gruber and Solomon. The county by zone by year effects absorb the local flood.
+\item ``Adaptation lowers take-up. Does the elevation subsidy then reduce coverage?'' Yes, a little, and the model counts it: elevated homes have lower losses, lower willingness to pay, and some drop coverage. Their uninsured losses are also lower, so the welfare cost is small. This is the honest version of the ``keeps households insured'' claim on slide 4: the elevation subsidy keeps them insured relative to full-risk pricing, not relative to the status quo.
+\end{itemize}
+
+\watch With CARA utility $u(x) = -e^{-\gamma x}/\gamma$, expected utility is negative, so multiplying the uninsured side by $\phi_i \ge 1$ makes it more negative, that is, worse, which would raise insurance rather than lower it. As written, the friction pushes the wrong way. Either state $\phi_i \le 1$, or write the friction as a multiplier on the perceived loss probability, or as an additive utility cost of insuring. Decide before the talk; a theorist in the room will catch it.
+
+\slide{21}{Welfare}
+\say Households: the sum of certainty-equivalent consumption, income minus the premium paid minus the expected loss the household bears minus the risk premium on that loss, net of the annualized elevation cost. Government: premium subsidies (claims paid $\theta D_i$ minus premium collected $p_i$, for insured households), elevation subsidies ($s_e c_i$ annualized, for elevated households), and ex post aid ($f D_i$ for uninsured households). Welfare is consumer surplus minus government outlay. Every transfer cancels: premiums, subsidies and aid appear once as a household gain and once as a government cost. What is left is income, minus expected damage, minus the risk premium the household bears, minus the real cost of elevating. So policy affects welfare through three channels only: how much damage there is (through who elevates), how much risk households bear (through who insures and how much of the residual is covered), and how much real resource goes into elevating.
+
+\why This is the objective the counterfactuals maximize. It is worth saying slowly because it disciplines the debate: a premium subsidy is not good because it is a transfer; it is good only if it raises insurance and so lowers the risk premium term, and it is bad only if it lowers elevation and so raises damage.
+
+\qa
+\begin{itemize}
+\item ``Where is the cost of public funds?'' Not in the expression: a dollar of subsidy costs the government a dollar and is worth a dollar to the household. With a marginal cost of public funds above one, both subsidies look worse, and the budget-constrained counterfactual (slide 22, reallocation) is the one that does not depend on it. Say that is why counterfactual 3 is the headline.
+\item ``Where is the distributional weight?'' Not there either; welfare is unweighted and CARA removes income effects. Say weights are the natural extension and that the income term $y_i$ in the final expression is where they would enter.
+\item ``What is $\tilde L_i$ and $\mathrm{RP}_i$?'' $\tilde L_i$ is the loss the household bears: $(1-\theta)L_i$ if insured, $(1-f)L_i$ if not. The risk premium is $\frac{1}{\gamma}\log \mathbb{E}\, e^{\gamma \tilde L_i} - \mathbb{E}\tilde L_i$, the CARA certainty-equivalent penalty, evaluated at the true loss distribution. It is zero for a fully insured household and positive otherwise.
+\item ``Why is the risk premium evaluated at true risk when the household chooses with a friction?'' Because the friction is a mistake, not a preference. If the audience prefers to respect the household's choice, the alternative is to drop the wedge; you can report both.
+\item ``Does the derivation actually cancel?'' Yes. The loss terms sum as $q(1-\theta)D + (1-q)(1-f)D + q\theta D + f(1-q)D = D$, and the cost terms as $(1-\beta)[(1-s_e)c + s_e c + \kappa]e = (1-\beta)(c+\kappa)e$.
+\end{itemize}
+
+\slide{22}{Counterfactuals}
+\say Four subsidy pairs. Status quo: premiums subsidized by about half, elevation grants negligible. Risk-based pricing: the premium subsidy at zero, which is where Risk Rating 2.0 is heading, with no elevation subsidy. Reallocation: choose both subsidies jointly holding government spending at the status-quo level, so the question is whether the same dollars do more as elevation subsidies than as premium subsidies. Optimum: choose both jointly with no budget constraint.
+
+\why Counterfactual 2 is the policy actually being implemented; 3 is the paper's headline because it is budget-neutral and so immune to the cost-of-funds objection; 4 shows the direction the planner would go with more money.
+
+\qa
+\begin{itemize}
+\item ``What do you expect?'' Say what the reduced form suggests without pre-empting the estimates: the premium return to elevation is zero (slide 15), so the premium subsidy does not distort elevation through prices; the private claim saving is small (slide 16), so elevation is privately unattractive at any premium; and demand is elastic in the literature. That points toward the elevation subsidy being targeted rather than universal, and toward the premium subsidy surviving because of coverage. But the answer is quantitative.
+\item ``Who should the elevation subsidy target?'' Households where $D_i(0)-D_i(1)$ is large relative to $c_i$: repetitive-loss, low-value, slab-free houses in the deepest zones. The model gives that ranking from the estimated cost projection and the damage reduction.
+\item ``Status quo has $s_e \approx 0$. Is that right given HMGP and FMA?'' The programs elevate on the order of 200 to 700 homes a year against 3 million insured high-risk homes, so the expected subsidy for a household considering elevation is close to zero even though the subsidy rate for a funded home is 75 to 100 percent. In the model $s_e$ is the ex ante subsidy.
+\end{itemize}
+
+\slide{23}{Parametrization}
+\say Two functional forms. Utility is CARA with risk-aversion parameter $\gamma$, which makes willingness to pay independent of income and gives the closed-form risk premium on slide 21. Coverage is full up to the 250,000 dollar building cap, so the household bears the excess of the loss over the cap.
+
+\why CARA is the standard choice in this literature (it is what makes the certainty-equivalent algebra tractable and matches Gruber and Solomon's demand setup); the cap is the actual NFIP contract.
+
+\qa
+\begin{itemize}
+\item ``CARA removes income effects. Is that a problem for a distributional paper?'' Yes, it is the reason the welfare function has no distributional weight, and it is a deliberate first pass. Say the alternative is CRRA with heterogeneous $\gamma$ or explicit welfare weights.
+\item ``What about the deductible and contents?'' The deductible is small relative to the losses in question (1,000 to 10,000) and can be folded into $\theta$; contents coverage is a separate policy and is left out. Both understate the uninsured share and so bias against elevation paying privately.
+\end{itemize}
+
+\slide{24}{Estimation Outline}
+\say Each object in the elevation rule of slide 19 has a data source. Premium response: read off the NFIP rate manuals, comparing the full-risk premium for the same house at its current and elevated first-floor height. Damage reduction: the event study on claims around the permit. Monetary cost: the declared cost on permits and HMA records, projected onto footprint, foundation type and county so every house has a predicted cost. Non-monetary cost: the distribution of $\kappa$ that rationalizes observed elevation shares across households facing different net costs; households with a large monetary gain who do not elevate reveal a large $\kappa$. Insurance demand: within-policy renewal responses to premium changes under Biggert-Waters, HFIAA and Risk Rating 2.0, as in Gruber and Solomon. Calibrated rather than estimated: the aid share $f$ from Gruber and Solomon, the discount factor $\beta$, and risk aversion $\gamma$.
+
+\why This is your ``what remains to be done'' slide. The audience will grade the plan on whether each object is credibly identified.
+
+\qa
+\begin{itemize}
+\item ``Why the rate manual rather than the paid premium for the premium response?'' Because the planner's instrument is the schedule; the paid premium on slide 15 is what the household experienced under the subsidy, and it is flat. The manual gives what the household would save under full-risk pricing.
+\item ``How is $\kappa$ identified separately from misperceived damage?'' It is not, in the current design: $\kappa$ absorbs everything that keeps a household from elevating when the monetary calculation says it should, including a household underestimating $D_i(0)-D_i(1)$. Say it is a residual and that the welfare results treat it as a real cost, which is the conservative choice for the elevation subsidy.
+\item ``What varies net cost across households for the $\kappa$ identification?'' Grant availability (HMGP after a declared disaster in the county, FMA for repetitive-loss homes) shifts $s_e$; footprint and foundation type shift $c_i$; the flood zone and construction year shift the damage reduction.
+\item ``What is the plan for $\gamma$?'' Calibrate to the level of take-up given the estimated slope, jointly with $\phi$, as slide 20 says. The two are not separately identified from the demand curve alone; risk aversion from the literature pins one, take-up pins the other.
+\end{itemize}
+
+\slide{25}{Appendix: Builty Word Cloud}
+\say The vocabulary of permit descriptions the text classifier uses to flag an elevation. The large words (elevation, existing, raise, house, elevate, foundation, home, flood, new, structure) are the terms that carry the classification; ``existing'' and ``raise'' separate a retrofit from a new elevated build; ``slab'', ``foundation'' and ``pier'' mark the foundation type that drives cost.
+
+\qa ``How do you validate the classifier?'' Against the two other elevation markers: an NFIP flag flip or an ICC payment on the same property after the permit year. The by-source event studies in the repository appendix show the same claim pattern for permits, flips and ICC events, which is the best evidence that the text flags are real elevations.
+
+\section*{Inconsistencies to fix or be ready for}
+\begin{enumerate}
+\item Slide 11 property count 3,201,652 versus 3,291,652 in the repository source; pre-FIRM loss ratio 1.27 versus 1.26. Make the deck match the summary-table workbook.
+\item Slide 3 retrofit cost ``about 150,000'' versus slide 8 ``190,000 to 225,000''. Use ``median declared permit cost 146,000; FEMA grant projects 160,000 to 225,000'' on both.
+\item Slide 8 HMGP ``about 13,000 elevations'' versus 8,868 funded single-family elevations in the cleaned grant file (FMA 5,268, not 5,400; 1.04 billion, not 1.1). Know which tabulation the 13,000 is from before you say it.
+\item Slide 16 headline ``1,000 saved per year'' is the pre-average minus post-average, not any plotted coefficient. Say that out loud, and have the same-flood number (41,000 per flood year, 36,000 present value, a quarter of cost) ready as the alternative.
+\item Slide 20 friction $\phi_i \ge 1$ multiplying a negative CARA expected utility makes the uninsured state worse, not better. Fix the sign or the placement.
+\item Slide 2 promises distributional concerns; slide 21 has none. Say the budget-neutral counterfactual is the distributional constraint for now and weights are next.
+\item The event-study pre-trend test for the probability of a claim rejects at 1 percent. Do not claim clean pre-trends; claim a flood-year reference and offer the same-flood design.
+\end{enumerate}
+
+\end{document}

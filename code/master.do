@@ -1,6 +1,6 @@
 /******************************************************************************
 Authors: Anna Li and Vendela Norman
-Date: 2026-09-15
+Date: 2026-10-02
 
 Description: Runs the data-construction pipeline for the climate-investments
     project.
@@ -49,7 +49,7 @@ local dewey_run_id ""
 // i) Prepare
 local import_dewey                      = 0 // import Attom and Builty data from Dewey
 local extract_nfip_policies             = 0 // extract per-state NFIP policies
-local extract_builty                    = 0 // extract per-state Builty elevation-candidate permits
+local extract_attom_permits             = 0 // extract per-state ATTOM elevation-candidate permits
 local extract_attom                     = 0 // extract per-state ATTOM property data
 local geocode_attom                     = 0 // geocode ATTOM addresses to fill Census block groups
 
@@ -57,9 +57,9 @@ local geocode_attom                     = 0 // geocode ATTOM addresses to fill C
 local crosswalks                        = 0 // create geographic crosswalks
 local clean_cpi                         = 0 // clean CPI deflator data
 local clean_hma                         = 0 // clean FEMA HMA elevation grants (all programs)
-local clean_builty                      = 0 // clean Builty permits data
-local geocode_builty                    = 0 // geocode cleaned Builty data to fill in missing ZIP codes
-local clean_builty_coverage             = 0 // Builty permit counts by county/ZIP/locality x year; coverage flags (needs geocoded ATTOM)
+local clean_permits                     = 0 // screen ATTOM permits to home elevations, one row per address
+local geocode_permits                   = 0 // geocode cleaned permit addresses to fill in missing ZIP codes and block groups
+local clean_permit_coverage             = 0 // ATTOM permit counts by county/ZIP/city x year; coverage flags (needs geocoded ATTOM)
 local clean_nfip_policies               = 0 // clean NFIP policies data
 local clean_nfip_claims                 = 0 // clean NFIP claims data
 local clean_nfip_multiple_loss          = 0 // clean NFIP multiple-loss data
@@ -71,7 +71,7 @@ local merge_nfip_hma                    = 0 // merge NFIP policies, claims, mult
 local merge_datasets                    = 0 // runs all of the torch scripts except geocode_attom.
     // local attom_geocode                  = 0 // merge geocoded Census block group to full ATTOM property records
     // local attom_nfhl                     = 0 // merge Attom w/ NFHL flood zone data
-    // local attom_builty                   = 0 // merge Attom w/ Builty 
+    // local attom_permits                  = 0 // link elevation permits to ATTOM properties
     // local nfip_attom                     = 0 // merge ATTOM with NFIP using the matching tiers
 local parquet_dta                       = 0 // convert parquet file to Stata
 local attom_value                       = 0 // ATTOM market value for matched properties, every year, 2023 $ (after parquet_dta)
@@ -80,7 +80,7 @@ local complete                          = 0 // compile final analysis dataset
 
 // iv) Descriptives
 local summary_table                     = 0 // create summary statistics table
-local histograms                        = 1 // histograms of cumulative claims and elevation project cost
+local histograms                        = 0 // histograms of cumulative claims and elevation project cost
 
 // v) Analysis
 local es_elevation                      = 0 // event studies of premium and claims around the elevation permit, pooled and by source
@@ -100,8 +100,8 @@ if `import_dewey' == 1 {
 if `extract_nfip_policies' == 1 {
     shell `python' "`code'/prepare/extract_nfip_policies.py" --data "`data'" --states "`states'"
 }
-if `extract_builty' == 1 {
-    shell `python' "`code'/prepare/extract_builty.py" --data "`data'" --states "`states'"
+if `extract_attom_permits' == 1 {
+    shell `python' "`code'/prepare/extract_attom_permits.py" --data "`data'" --states "`states'"
 }
 if `extract_attom' == 1 {
     shell `python' "`code'/prepare/extract_attom.py" ///
@@ -125,14 +125,14 @@ if `clean_cpi' == 1 {
 if `clean_hma' == 1 {
     do "`code'/clean/clean_hma.do" "`data'"
 }
-if `clean_builty' == 1 {
-    do "`code'/clean/clean_builty.do" "`data'" "`states'"
+if `clean_permits' == 1 {
+    do "`code'/clean/clean_permits.do" "`data'" "`states'"
 }
-if `geocode_builty' == 1 {
-    shell `python' "`code'/clean/geocode_builty.py" --data "`data'"
+if `geocode_permits' == 1 {
+    shell `python' "`code'/clean/geocode_permits.py" --data "`data'"
 }
-if `clean_builty_coverage' == 1 {
-    shell `python' "`code'/clean/clean_builty_coverage.py" --data "`data'" --states "`states'"
+if `clean_permit_coverage' == 1 {
+    shell `python' "`code'/clean/clean_permit_coverage.py" --data "`data'" --states "`states'"
 }
 if `clean_nfip_policies' == 1 {
     do "`code'/clean/clean_nfip_policies.do" "`data'" "`states'"

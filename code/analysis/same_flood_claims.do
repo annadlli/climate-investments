@@ -1,7 +1,7 @@
 /******************************************************************************
 Authors: Anna Li
-Date: 2026-09-22
-Description: claims of Builty-permitted homes before and after the permit against never-elevated
+Date: 2026-10-02
+Description: claims of permitted homes before and after the elevation permit against never-permitted
     homes hit by the same flood, and the cost-effectiveness translation.
 ******************************************************************************/
 
@@ -28,7 +28,8 @@ log using "`output'/logs/same_flood_claims.log", replace text name(same_flood)
 * =============================================================================
 
 use property_id policy_year flood_zone claim construction_year post_firm ///
-    elevation_retrofit elevation_source elevation_year elevation_cost attom_matched censusblockgroupfips ///
+    elevation_retrofit elevation_year elevation_cost attom_matched censusblockgroupfips ///
+    nfip_icc /// 
     using "`data'/analysis/analysis.dta", clear
 gen countycode = substr(censusblockgroupfips, 1, 5)
 gen zone = substr(flood_zone, 1, 1)
@@ -47,10 +48,16 @@ restore
 * a permit can only attach to an ATTOM-matched home, so unmatched homes cannot be controls
 keep if attom_matched == 1
 
-* treated: Builty-permitted homes, since the permit dates the work; homes whose only elevation
-* signal is an NFIP flag flip (dated after the work) or an ICC payment (dated by the flood) are set aside
-gen permit = elevation_source == 3
-drop if elevation_retrofit == 1 & !permit
+// 10-14 revision: drop homes with an ICC payment from treated and controls alike
+quietly count if !missing(nfip_icc)
+di "ICC home-years dropped: " r(N)
+drop if !missing(nfip_icc)
+drop nfip_icc
+
+* treated: homes with an elevation permit (the permit dates the work)
+// 10-02 revision: the permit is the only elevation event; NFIP flip homes are not set aside
+// 10-14 revision: ICC homes are dropped above
+gen permit = elevation_retrofit
 
 * counties with at least one permitted home, and a random draw of the never-elevated homes there
 bysort countycode: egen county_has_permit = max(permit)
@@ -172,7 +179,7 @@ preserve
 restore
 
 putexcel set "`output'/tables/same_flood_claims.xlsx", sheet(same_flood) replace
-putexcel A1 = "Flood county-years only (>= `=100 * `flood_share''% of insured homes and >= `min_flood_claims' homes claim): Builty-permitted homes before and after the permit vs never-elevated homes in the same county x zone x year; construction decade x FIRM status absorbed; SE clustered by county"
+putexcel A1 = "Flood county-years only (>= `=100 * `flood_share''% of insured homes and >= `min_flood_claims' homes claim): permitted homes before and after the permit vs never-permitted homes in the same county x zone x year; construction decade x FIRM status absorbed; SE clustered by county"
 putexcel A2 = matrix(F), names
 putexcel set "`output'/tables/same_flood_claims.xlsx", sheet(npv) modify
 putexcel A1 = "Saving per flood year x share of permitted homes' years that are flood years, as a `horizon'-year present value at `=100 * `discount''%, against the median declared permit cost (2023 $)"

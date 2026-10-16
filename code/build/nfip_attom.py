@@ -4,24 +4,7 @@ Original Date: 2026-08-14
 Revised Date: 2026-09-21
 
 Pairs each NFIP-insured property with one ATTOM property, so the insurance
-records pick up a property value and a Builty elevation flag.
-
-NFIP is redacted: no street address, and coordinates rounded to about a tenth
-of a degree. So no real address match -- follows Wagner instead, matching
-inside a cell of properties that look alike. The pairing
-is one-to-one and deterministic, which means the result merges straight onto
-the property-level analysis file.
-
-Matching happens once, at each property's first observed policy year. The
-crosswalk that comes out has no time dimension, so a property-year panel gets
-rebuilt afterwards by joining ATTOM values on (attomid, year).
-
-Note: this is not cumulative. Cumulative was done only for diagnostics. 
-09-06: ATTOM block-group falls back to Builty info when ATTOM's own geocoding info fails
-09-06: add in also the new-construction/back-fill retrofit flags of builty
-09-12: add in also the project value and funding type of builty
-09-15 : value lookup is a filtered join, not a per-property subquery
-09-21; block-group try two Census vintages, as NFIP uses both
+records pick up a property value and an elevation-permit flag. Use NFHL zones and NFIP ratings to get flood zones
 """
 
 from __future__ import annotations
@@ -38,10 +21,11 @@ VALUE_COLUMNS = [
     "assessed_value_total", "assessed_value_improvements",
     "previous_assessed_value", "last_sale_price",
 ]
-
-# Wagner's high/low split. anything on neither list stays missing, not low risk
-HIGH_RISK = ("A", "AE", "AH", "AO", "V", "VE")
-LOW_RISK = ("B", "C", "D", "X", "XE")
+# High vs low flood risk, following Wagner classification, where SFHA zones (A/V family) are high, the rest low.
+# Unknown codes staymissing rather than being called low risk. 
+# A99 and AR (levee zones) exist in NFIP but ot really in the NFHL, so they count as high risk and can only match on risk, not zone.
+HIGH_RISK = ("AE", "AH", "AO", "VE", "A99", "AR")
+LOW_RISK = ("D", "X", "XE")
 
 # match ladder, tightest first. each tier is (cell keys, name).
 # gives up precision one piece at a time: coarser geography, zone -> risk,
@@ -76,19 +60,20 @@ ASSIGNMENT_COLUMNS = {
     "assigned_attomid": "varchar", "assignment_method": "varchar",
     "nfip_cell_rank": "integer", "attom_cell_rank": "integer",
     "nfip_cell_n": "integer", "attom_cell_n": "integer",
-    "builty_attom_cell_n": "integer", "cell_singleton": "integer",
+    "permit_attom_cell_n": "integer", "cell_singleton": "integer",
     "attom_flood_zone_original": "varchar", "attom_flood_zone_key": "varchar",
     "attom_flood_risk_key": "varchar", "attom_nfhl_flood_matched": "boolean",
     "attom_property_use_std": "varchar",
-    "attom_nfhl_community_matched": "boolean", "builty_elevated": "integer",
-    "builty_elevation_year": "integer", "builty_n_properties": "integer",
-    "builty_merge_status": "integer", "builty_attom_match_tier": "varchar",
-    # 09-06: retrofit / new-construction flags and the geocode-backfill flag from attom_builty.py
-    "builty_retrofit": "integer", "builty_new_construction": "integer",
-    "builty_geo_backfilled": "integer",
-    "builty_built_at_permit": "integer",   # 09-07: permit year within a year of ATTOM year built
+    "attom_nfhl_community_matched": "boolean", "permit_elevated": "integer",
+    "permit_elevation_year": "integer", "permit_n_properties": "integer",
+    "permit_merge_status": "integer", "permit_attom_match_tier": "varchar",
+    # 09-06: retrofit / new-construction flags and the geocode-backfill flag from attom_permits.py
+    "permit_retrofit": "integer", "permit_new_construction": "integer",
+    "permit_geo_backfilled": "integer",
+    "permit_built_at_permit": "integer",   # 09-07: permit year within a year of ATTOM year built
+    "permit_completed": "integer", "permit_year_issued": "integer", "permit_status": "varchar",
     # 09-12: builty cost and funding source
-    "builty_project_value": "double", "builty_funding_type": "integer",
+    "permit_project_value": "double", "permit_funding_type": "integer",
     "blockgroup_vintage_used": "varchar",   # 09-21: which ATTOM block-group vintage the cell used
     "nfip_alive_at_permit": "integer",      # 09-22: 1 = insured in the permit year, 0 = not, NULL = no permit house in the cell
     "attom_value_year": "integer", "attom_value_lag": "integer",
@@ -97,10 +82,13 @@ ASSIGNMENT_COLUMNS = {
 
 # same tidy-up as zone(), in SQL for the ATTOM side.
 # goes in as a value, so single braces are fine in the f-strings
-ZONE_SQL = """
-    CASE WHEN regexp_matches(upper(replace(trim(cast(fld_zone AS varchar)),' ','')),'^A[0-9]{1,2}$') THEN 'AE'
-         WHEN regexp_matches(upper(replace(trim(cast(fld_zone AS varchar)),' ','')),'^V[0-9]{1,2}$') THEN 'VE'
-         ELSE nullif(upper(replace(trim(cast(fld_zone AS varchar)),' ','')),'') END
+_Z = "upper(replace(trim(cast(fld_zone AS varchar)),' ',''))"
+ZONE_SQL = f"""
+    CASE WHEN regexp_matches({_Z}, '^(AH|AO)B$') THEN substr({_Z}, 1, 2)
+         WHEN regexp_matches({_Z}, '^(A|AE|A(0?[1-9]|[12][0-9]|30))$') THEN 'AE'
+         WHEN regexp_matches({_Z}, '^(V|VE|V(0?[1-9]|[12][0-9]|30))$') THEN 'VE'
+         WHEN {_Z} IN ('B', 'C') THEN 'X'
+         ELSE nullif({_Z}, '') END
 """
 
 
@@ -130,15 +118,18 @@ def to_year(series: pd.Series, label: str) -> pd.Series:
 
 
 def zone(series: pd.Series) -> pd.Series:
-    # old maps number the zones (A7, V12); newer ones just say AE and VE
+# Put NFIP policy codes and NFHL map codes on one key 
     out = norm(series).str.replace(" ", "", regex=False)
-    out.loc[out.str.fullmatch(r"A\d{1,2}").fillna(False)] = "AE"
-    out.loc[out.str.fullmatch(r"V\d{1,2}").fillna(False)] = "VE"
+    out = out.str.replace(r"^(AH|AO)B$", r"\1", regex=True)
+    # numbered zones run 1-30 (A99 is its own zone, so no bare \d{1,2})
+    out.loc[out.str.fullmatch(r"A|AE|A(0?[1-9]|[12][0-9]|30)").fillna(False)] = "AE"
+    out.loc[out.str.fullmatch(r"V|VE|V(0?[1-9]|[12][0-9]|30)").fillna(False)] = "VE"
+    out.loc[out.isin(["B", "C"])] = "X"
     return out
 
 
 def risk(series: pd.Series) -> pd.Series:
-    # high/low buckets; oddities like AR stay missing
+    # high/low buckets on the aligned key; map gaps (AREANOTINCLUDED, missing) stay missing
     z = zone(series)
     out = pd.Series(pd.NA, index=z.index, dtype="string")
     out.loc[z.isin(HIGH_RISK)] = "high_risk"
@@ -152,7 +143,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--properties", required=True,
                    help="clean/nfip_policies_property.dta (first-policy-year snapshot, all states)")
     p.add_argument("--attom", required=True, help="{state}_attom_geocoded.parquet")
-    p.add_argument("--attom-nfhl-builty", required=True)
+    p.add_argument("--attom-nfhl-permits", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--tmp", required=True)
     p.add_argument("--use-codes", default="376,380,382,383,385,386",
@@ -233,7 +224,7 @@ def use_code_filter(use_codes: str) -> str:
 def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
                 use_codes: str, allow_missing_construction: bool) -> None:
     # eligible ATTOM pool: one row each, with NFHL flood zone + elevation flag
-    #09-06add in flags carried from attom_builty.py, and fall back to Builty block group when ATTOM's own geocode fails
+    #09-06add in flags carried from attom_permits.py, and fall back to the permit block group when ATTOM's own geocode fails
     year_filter = "TRUE" if allow_missing_construction else "p.construction_year BETWEEN 1700 AND 2027"
     con.execute(f"""
         CREATE TABLE attom AS
@@ -251,13 +242,16 @@ def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
           GROUP BY 1
         ), e AS (SELECT * FROM read_parquet({q(enriched)}))
         SELECT p.* EXCLUDE(blockgroup_key),
-          coalesce(p.blockgroup_key, nullif(trim(cast(e.builty_blockgroup AS varchar)),'')) blockgroup_key,
-          cast(e.builty_retrofit AS integer) builty_retrofit,
-          cast(e.builty_new_construction AS integer) builty_new_construction,
-          cast(e.builty_built_at_permit AS integer) builty_built_at_permit,
-          cast(e.builty_project_value AS double) builty_project_value,
-          cast(e.builty_funding_type AS integer) builty_funding_type,
-          coalesce(cast(e.coords_backfilled_builty AS integer),0) builty_geo_backfilled,
+          coalesce(p.blockgroup_key, nullif(trim(cast(e.permit_blockgroup AS varchar)),'')) blockgroup_key,
+          cast(e.permit_retrofit AS integer) permit_retrofit,
+          cast(e.permit_new_construction AS integer) permit_new_construction,
+          cast(e.permit_built_at_permit AS integer) permit_built_at_permit,
+          cast(e.permit_project_value AS double) permit_project_value,
+          cast(e.permit_funding_type AS integer) permit_funding_type,
+          cast(e.permit_completed AS integer) permit_completed,        
+          cast(e.permit_year_issued AS integer) permit_year_issued,    
+          cast(e.permit_status AS varchar) permit_status,              
+          coalesce(cast(e.coords_backfilled_permit AS integer),0) permit_geo_backfilled,
           -- pad community number to 6 digits to match NFIP
           CASE WHEN regexp_matches(trim(cast(e.nfip_community_id AS varchar)), '^[0-9]+(\\.0)?$')
                  THEN lpad(regexp_extract(trim(cast(e.nfip_community_id AS varchar)), '^(\\d+)', 1), 6, '0')
@@ -276,11 +270,11 @@ def build_attom(con: duckdb.DuckDBPyConnection, attom: str, enriched: str,
                AS integer) END postfirm_key,
           cast(e.nfhl_flood_matched AS boolean) nfhl_flood_matched,
           cast(e.nfhl_community_matched AS boolean) nfhl_community_matched,
-          coalesce(cast(e.builty_elevated AS integer),0) builty_elevated,
-          cast(e.builty_elevation_year AS integer) builty_elevation_year,
-          coalesce(cast(e.builty_n_properties AS integer),0) builty_n_properties,
-          cast(e.builty_merge_status AS integer) builty_merge_status,
-          cast(e.builty_attom_match_tier AS varchar) builty_attom_match_tier,
+          coalesce(cast(e.permit_elevated AS integer),0) permit_elevated,
+          cast(e.permit_elevation_year AS integer) permit_elevation_year,
+          coalesce(cast(e.permit_n_properties AS integer),0) permit_n_properties,
+          cast(e.permit_merge_status AS integer) permit_merge_status,
+          cast(e.permit_attom_match_tier AS varchar) permit_attom_match_tier,
           false assigned
         FROM p INNER JOIN e USING(attomid)
         WHERE {year_filter}
@@ -307,12 +301,12 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
           SELECT {ks}, count(*) nfip_cell_n FROM nfip
           WHERE nfip_attom_merge_status=1 AND {valid}{nfip_where} GROUP BY {ks}
         ), a AS (
-          SELECT {ks}, count(*) attom_cell_n, sum((builty_elevated=1)::integer) builty_attom_cell_n,
+          SELECT {ks}, count(*) attom_cell_n, sum((permit_elevated=1)::integer) permit_attom_cell_n,
                  -- 09-22: the cell's permit year (earliest, if several permit houses)
-                 min(CASE WHEN builty_elevated=1 THEN builty_elevation_year END) permit_year
+                 min(CASE WHEN permit_elevated=1 THEN permit_elevation_year END) permit_year
           FROM {attom_src} WHERE assigned=false AND {valid} GROUP BY {ks}
         )
-        SELECT n.*, a.attom_cell_n, a.builty_attom_cell_n, a.permit_year,
+        SELECT n.*, a.attom_cell_n, a.permit_attom_cell_n, a.permit_year,
                {q(label)}||'|'||md5(concat_ws('|',{ks})) match_cell_id,
                (n.nfip_cell_n=1 AND a.attom_cell_n=1)::integer cell_singleton
         FROM n INNER JOIN a USING({ks})
@@ -320,7 +314,7 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
 
     # inside a cell, rank both sides and pair by position. order is a hash of
     # cell id + property id: reproducible, unrelated to sort order, different
-    # salt per side. Builty houses ranked first so they win their slot
+    # salt per side. Permit houses ranked first so they win their slot
     con.execute("DROP TABLE IF EXISTS tier_hits")
     con.execute(f"""
         CREATE TEMP TABLE tier_hits AS
@@ -329,7 +323,7 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
           -- (they pair with the permit house, which ranks first on the ATTOM side), then homes
           -- built by the permit year, then the hash order
           SELECT n.property_id, {ks}, s.match_cell_id, s.nfip_cell_n, s.attom_cell_n,
-                 s.builty_attom_cell_n, s.cell_singleton,
+                 s.permit_attom_cell_n, s.cell_singleton,
                  CASE WHEN s.permit_year IS NULL THEN NULL
                       WHEN n.policy_year_init_num <= s.permit_year
                        AND coalesce(n.policy_year_last, 9999) >= s.permit_year THEN 1 ELSE 0 END alive_at_permit,
@@ -345,13 +339,13 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
                  a.flood_zone_key assigned_flood_zone_key,
                  a.flood_risk_key assigned_flood_risk_key,
                  row_number() over(partition by {ks}
-                   order by a.builty_elevated desc,
+                   order by a.permit_elevated desc,
                             md5(s.match_cell_id||'|attom|fixed_seed|'||a.attomid)) cell_rank
           FROM {attom_src} a INNER JOIN cell_stats s USING({ks})
           WHERE a.assigned=false AND {valid}
         )
         SELECT nr.property_id, nr.match_cell_id, nr.nfip_cell_n, nr.attom_cell_n,
-               nr.builty_attom_cell_n, nr.cell_singleton, nr.alive_at_permit,
+               nr.permit_attom_cell_n, nr.cell_singleton, nr.alive_at_permit,
                nr.cell_rank nfip_cell_rank, ar.cell_rank attom_cell_rank,
                ar.* EXCLUDE({ks}, cell_rank)
         FROM nr INNER JOIN ar USING({ks}, cell_rank)
@@ -363,7 +357,7 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
         "match_cell_id=h.match_cell_id", "assigned_attomid=h.attomid",
         "nfip_cell_rank=h.nfip_cell_rank", "attom_cell_rank=h.attom_cell_rank",
         "nfip_cell_n=h.nfip_cell_n", "attom_cell_n=h.attom_cell_n",
-        "builty_attom_cell_n=h.builty_attom_cell_n", "cell_singleton=h.cell_singleton",
+        "permit_attom_cell_n=h.permit_attom_cell_n", "cell_singleton=h.cell_singleton",
         "assignment_method=case when h.cell_singleton=1 then 'singleton' else 'deterministic_hash_rank' end",
         "attom_flood_zone_original=h.attom_flood_zone_original",
         "attom_flood_zone_key=h.assigned_flood_zone_key",
@@ -371,14 +365,16 @@ def apply_tier(con: duckdb.DuckDBPyConnection, keys: list[str], label: str, tier
         "attom_property_use_std=h.property_use_std",
         "attom_nfhl_flood_matched=h.nfhl_flood_matched",
         "attom_nfhl_community_matched=h.nfhl_community_matched",
-        "builty_elevated=h.builty_elevated", "builty_elevation_year=h.builty_elevation_year",
-        "builty_n_properties=h.builty_n_properties", "builty_merge_status=h.builty_merge_status",
-        "builty_attom_match_tier=h.builty_attom_match_tier",
+        "permit_elevated=h.permit_elevated", "permit_elevation_year=h.permit_elevation_year",
+        "permit_n_properties=h.permit_n_properties", "permit_merge_status=h.permit_merge_status",
+        "permit_attom_match_tier=h.permit_attom_match_tier",
         # 09-06: the three new flags ride onto the NFIP property with the rest
-        "builty_retrofit=h.builty_retrofit", "builty_new_construction=h.builty_new_construction",
-        "builty_geo_backfilled=h.builty_geo_backfilled",
-        "builty_built_at_permit=h.builty_built_at_permit",
-        "builty_project_value=h.builty_project_value", "builty_funding_type=h.builty_funding_type",
+        "permit_retrofit=h.permit_retrofit", "permit_new_construction=h.permit_new_construction",
+        "permit_geo_backfilled=h.permit_geo_backfilled",
+        "permit_built_at_permit=h.permit_built_at_permit",
+        "permit_completed=h.permit_completed", "permit_year_issued=h.permit_year_issued",
+        "permit_status=h.permit_status",
+        "permit_project_value=h.permit_project_value", "permit_funding_type=h.permit_funding_type",
         f"blockgroup_vintage_used={q(bg_vintage) if bg_vintage else 'NULL'}",
         "nfip_alive_at_permit=h.alive_at_permit",
     ]
@@ -411,13 +407,13 @@ def attach_values(con: duckdb.DuckDBPyConnection, attom: str) -> None:
           SELECT n.property_id, v.value_year, {','.join('v.'+c for c in VALUE_COLUMNS)},
                  row_number() OVER (PARTITION BY n.property_id ORDER BY v.value_year DESC) rk
           FROM nfip n JOIN v ON v.attomid = n.assigned_attomid
-          WHERE v.value_year <= coalesce(n.builty_elevation_year, n.reference_year)
+          WHERE v.value_year <= coalesce(n.permit_elevation_year, n.reference_year)
         )
         SELECT n.* EXCLUDE(attom_value_year, attom_value_lag,
                            {','.join('attom_'+c for c in VALUE_COLUMNS)}),
-               coalesce(n.builty_elevation_year, n.reference_year) value_reference_year,
+               coalesce(n.permit_elevation_year, n.reference_year) value_reference_year,
                p.value_year attom_value_year,
-               coalesce(n.builty_elevation_year, n.reference_year) - p.value_year attom_value_lag,
+               coalesce(n.permit_elevation_year, n.reference_year) - p.value_year attom_value_lag,
                {','.join('p.'+c+' attom_'+c for c in VALUE_COLUMNS)}
         FROM nfip n LEFT JOIN pick p ON p.property_id = n.property_id AND p.rk = 1
     """)
@@ -445,7 +441,7 @@ def main() -> None:
         con.execute(f"ALTER TABLE nfip ADD COLUMN {name} {dtype}")
 
     # the ATTOM pool to match against
-    build_attom(con, args.attom, args.attom_nfhl_builty, args.use_codes,
+    build_attom(con, args.attom, args.attom_nfhl_permits, args.use_codes,
                 allow_missing_construction=args.add_tier_15)
     print(f"{state}: {con.execute('SELECT count(*) FROM attom').fetchone()[0]:,} "
           f"ATTOM candidates (use_codes={args.use_codes})")

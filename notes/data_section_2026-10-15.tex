@@ -1,0 +1,204 @@
+% Draft data section, 2026-10-15 (Claude change 10-15, new file).
+% Written to replace Section 4 of Flooding_Aug_2026.pdf after the ATTOM permit switch (10-02),
+% the zone-aligned NFIP-ATTOM match (10-12) and the event-date / SFHA rules (10-15).
+% Model: Wagner (2022, AEJ:Policy) Section III (one titled paragraph per administrative source,
+% then sample restrictions, then the linkage with its limitation, then the summary table) and
+% Gruber and Solomon (2026, NBER WP 35408), whose data paragraphs are short, say what each
+% source is and what it is used for, and push institutional detail to the background section.
+% Numbers marked [10-15] are from the 10-15 build (zone-aligned links, Oct 8 permit file, the
+% complete.do / summary_table.do / elevations_by_state.do run of 10-15 15:41, after the cluster's
+% permit status history landed; the morning build's numbers were replaced the same day).
+% Script names, file paths and variable names are left out on purpose (data_revision_guide.md).
+
+\section{Data}
+
+We combine four administrative datasets: the universe of National Flood Insurance Program
+(NFIP) policies and claims, FEMA's Hazard Mitigation Assistance (HMA) grant records, building
+permits, and tax-assessor property records. We supplement these with FEMA's digital flood maps.
+Each source contributes a distinct piece of the analysis: NFIP identifies the insured population
+and records premiums, coverage and claims; HMA records federally funded elevations and their
+cost; permits date privately and publicly funded elevations; and assessor records give property
+values and a street address. The analysis covers single-family homes in Florida, Louisiana and
+Texas from 2009 to 2025, deflated to 2023 dollars.
+
+\paragraph{Flood insurance policies and claims.}
+The NFIP policy data are the public OpenFEMA release of every policy transaction since 2009,
+one record per policy-year, with premium, building and contents coverage, the rated flood zone,
+construction year, pre- or post-FIRM status, primary-residence status and an elevated-building
+indicator. The claims data record every paid claim with the date of loss and the building and
+contents payouts; the multiple-loss file flags repetitive-loss and severe-repetitive-loss
+structures. Addresses are redacted. Following \citet{wagner2022}, we identify a structure
+approximately by its census block group, construction year and original policy date, which
+yields a property-year panel. Where several structures share an identifier their claims are
+pooled; we drop the 5,449 such identifiers (0.08 percent of properties) whose claims exceed
+their coverage. The three states hold 7.1 million insured single-family structures, of which
+3.3 million are rated in a Special Flood Hazard Area (SFHA) [10-15].
+
+We use the NFIP elevated-building indicator only as a control. It behaves as a stock rather
+than a flow: of 313,000 flagged structures nationally, about one percent ever change status
+on the panel, and the elevation-certificate fields show that a change in the flag is a
+certificate entering the rating, usually for a house that was already elevated, rather than a
+construction event.\footnote{Within-structure comparisons of the certificate's lowest-floor
+elevation before and after a flag change show a median rise of zero feet; only 9 percent rise
+by three feet or more.} The flag therefore cannot date elevations, which is why we turn to
+permits.
+
+\paragraph{Mitigation grants.}
+FEMA's HMA records cover every federally funded elevation project under the Flood Mitigation
+Assistance (FMA), Hazard Mitigation Grant (HMGP), Pre-Disaster Mitigation, Building Resilient
+Infrastructure and Communities, Repetitive Flood Claims and Severe Repetitive Loss programs.
+The project file carries program, project type, approval status, benefit-cost ratio, number of
+properties and federal obligation; the mitigated-properties file lists each treated property
+with its ZIP code but no address, and includes applications that were never funded, which we
+remove by requiring a funded project. Nationally the programs elevated about 18,800
+single-family homes between 1997 and 2025, 70 percent of them under HMGP, at a median federal
+cost of \$130,000 per home in 2023 dollars. Because properties carry no address, and grants FEMA never logged at the
+property level carry no ZIP code, we measure grant exposure at the county level, as cumulative grant-elevated
+homes and federal spending per insured home. Property-level grant lists are being obtained
+from the states through records requests and will replace the county measure where available.
+
+\paragraph{Building permits.}
+Our universe of home elevations, funded or not, comes from ATTOM's building-permit product,
+which compiles permits from local jurisdictions and attaches ATTOM's property identifier to
+79 percent of them. We extract every permit in the three states (110 million) whose type,
+subtype or description mentions an elevation, and screen the text for a house being raised,
+removing elevation certificates, utility and equipment elevations, raised slabs on new
+construction, boat lifts and demolitions. The screen leaves 17,143 addresses, of which 15,290
+are retrofits of an existing house and the rest elevated new construction [10-15].\footnote{A
+hand reading of the survivors in Duval County, Florida, found that the screen's remaining
+errors are concentrated in one city's ``elevation certificate required'' stamp on unrelated
+permits, which the final screen removes.} ATTOM's permit coverage is by jurisdiction and year:
+within a reporting jurisdiction-year every permit is recorded, but jurisdictions enter the feed
+at different dates. We therefore count all permits of any type by county, ZIP code and city by
+year and treat a home's elevation status as observed only in county-years with a permit feed.
+Florida is covered throughout our period; Texas from 2009 for about 90 percent of insured
+homes; Louisiana from 2013 for 80 percent, with a gap in 2017--2018 in Jefferson Parish.
+
+Each permit carries the jurisdiction's own status label and an issue date. ATTOM also
+publishes a status history that resolves the labels into fifteen standard stages with effective
+dates. We date an elevation at the year the permit was finaled; where the permit has a history
+but never reached a completion stage, at the year of its last recorded stage; and otherwise at
+the issue year. We keep an elevation only when the permit record shows it done: finaled,
+completed or closed. Jurisdictions whose feeds never record a completion stage, which account
+for a third of Louisiana's permits, are treated separately, since an ``issued'' label there is
+the last label the feed ever writes.\footnote{The status history covers 86 to 96 percent of the elevation addresses in the three
+states. Of the addresses, 51 percent in Florida, 38 in Louisiana and 47 in Texas have a completion
+stage; about a quarter of those completion rows carry no date, so they count for completion but
+not for the event year. The remaining addresses sit at issued, approved or applied, concentrated
+in 2023 and later and in Louisiana feeds that never record completions. [10-15]}
+
+\paragraph{Property records.}
+Property characteristics come from ATTOM's tax-assessor file, which covers every parcel in the
+three states with its street address, coordinates, land use, construction year, and assessed
+and market values by tax year. We keep single-family residential parcels, geocode each to its
+2010 and 2020 census block group, and join each parcel to its flood zone on FEMA's National
+Flood Hazard Layer (NFHL). Market value is the assessor's market field, which we deflate to 2023
+dollars and carry to each policy year from the nearest assessment.\footnote{Louisiana assesses
+residential property at ten percent of market value, and in a handful of rural parishes the
+market field sits at the assessed level; we leave those values in and note them in the
+appendix.} Permits join to the assessor record on ATTOM's property identifier (93 to 97 percent
+of linked permits) or, failing that, on the street address (85, 93 and 95 percent of elevation
+addresses in Florida, Louisiana and Texas are linked) [10-15].
+
+\subsection{Linking insured structures to properties}
+
+NFIP's redaction means an insured structure cannot be matched to a parcel one to one. We
+follow Wagner's (2022) cell match: an insured structure and a parcel are paired when they share
+a census block group, construction year and flood zone, with the flood zone taken from the
+policy's rating on the NFIP side and from the NFHL on the parcel side, placed on a common code
+key.\footnote{NFIP rates zones AHB and AOB, A1--A30 and V1--V30 and the pre-1980 B and C
+zones, which the current NFHL does not carry; we map each to its NFHL equivalent before
+matching. Before this alignment, 15 percent of the panel could never reach a flood-zone
+tier.} Where no parcel shares all three, the match relaxes in a fixed order: a five-year
+construction band and FIRM status in place of the exact year, the ZIP code, the NFIP
+community and the county in place of the block group, high- or low-risk in place of the zone,
+and finally no zone at all; a last tier pairs structures with no construction year on block
+group and zone alone. Within a cell the pairing is arbitrary, except that a parcel with an
+elevation permit is paired first with a structure insured in the permit year.
+
+The match assigns a parcel to 86 percent of insured structures in Florida, 65 percent in
+Louisiana and 92 percent in Texas [10-15]. Louisiana's rate is low because 59 percent of its
+single-family parcels have no construction year in the assessor file, so most of its matches
+fall to the final tier. Among structures carrying an elevation permit, two thirds are matched
+on the exact cell and 94 percent on a block-group tier of some kind [10-15]. Because the
+pairing within a cell is arbitrary, property values and permits are in substance cell-level
+measures: they describe the insured structure's immediate neighbourhood and vintage, not the
+structure itself. The permit's location is exact; which of the cell's insured structures it is
+attached to is not, and our event-study estimates should be read with that attenuation in mind.
+
+\subsection{Sample}
+
+The analysis sample is every NFIP-insured single-family structure in Florida, Louisiana and
+Texas that is rated in an SFHA, observed in the policy years 2009 to 2025. We take SFHA status
+from the policy's own rated zone and, for the few hundred structures per state whose policies
+carry no zone, from the NFHL zone of the matched parcel. We restrict nothing else at the build
+stage: the ATTOM match, the permit-feed coverage of the county-year and the status of the
+permit ride along as flags, and each analysis applies the restriction it needs. The event
+studies, for instance, use structures with an ATTOM match in counties with at least one
+permitted home, and date treatment by the permit's event year. The sample holds 3,291,653
+structures and 16.6 million property-years [10-15]. Three quarters of the structures are
+matched to a parcel (77 percent in Florida, 56 in Louisiana, 87 in Texas), 92 percent sit in a
+county-year with a permit feed (99, 69 and 92 percent), and 74 percent are both, which is the
+set on which an elevation is observable. Among the 5,944 structures with a permitted retrofit,
+43 percent have reached a completion stage in the status history (48 percent in Florida, 39 in
+Louisiana and Texas); 470 of them have no issue date on the record and are dated by the history
+alone [10-15].
+
+Three features of the sample bear on interpretation. First, the panel starts in 2009, so claims
+before that year are unobserved and a structure's flood history is left-censored. Second, a
+structure enters the panel only while insured; elevations on homes that drop NFIP coverage are
+unobserved after exit, and the cell match attaches them to another insured structure. Third,
+permit-feed coverage is a property of the jurisdiction and year, so the elevation rate is
+defined only on the covered subsample, which is nearly all of Florida and Texas but under
+half of Louisiana's insured homes before 2013.
+
+\subsection{Summary statistics}
+
+Table~\ref{tab:summary} reports the sample [10-15]. The median structure pays \$644 a year
+in premium and 1.2 percent of property-years carry a claim; claims paid exceed premiums by 7
+percent over the period, 26 percent for pre-FIRM structures and 18 percent below premiums for
+post-FIRM ones. Claims are skewed: among structures that ever claim, the median cumulative
+payout is \$82,600, and \$104,000 among repetitive-loss structures. Fourteen percent of
+structures are already rated as elevated when first observed, almost all of them post-FIRM
+construction. Elevations during the period are rare: 5,944 permitted retrofits, or 1.1, 4.2
+and 2.0 per 1,000 insured SFHA homes in Florida, Louisiana and Texas, an order of magnitude
+more than the NFIP indicator shows changing, concentrated in the parishes and counties with the
+largest repetitive-loss populations, at a median declared cost of \$132,000, about 56 percent
+of the median property value. The
+federal programs reach a similar number of homes: on the 09-20 build, grant-elevated homes
+per insured SFHA home are 0.9 percent in Louisiana, 0.2 percent in Texas and 0.02 percent in
+Florida.
+
+\begin{table}[htbp]
+\centering
+\caption{Summary statistics, NFIP-insured single-family structures in SFHAs, FL LA TX, 2009--2025}
+\label{tab:summary}
+\begin{tabular}{lccc}
+\hline
+ & All & Pre-FIRM & Post-FIRM \\
+\hline
+\multicolumn{4}{l}{\textit{A. Insurance}} \\
+\quad Premium (median, 2023 \$) & 644 & 888 & 574 \\
+\quad Claims paid / premiums & 1.07 & 1.26 & 0.82 \\
+\quad Share of property-years with a claim & 0.012 & 0.016 & 0.008 \\
+\quad Cumulative claims if any (median, 2023 \$) & 82,573 & 96,483 & 45,856 \\
+\multicolumn{4}{l}{\textit{B. Elevation}} \\
+\quad Elevated at first observation (NFIP indicator) & 449,933 & 172,804 & 277,129 \\
+\quad Permitted retrofit, 2009--2025 & 5,944 & 3,917 & 2,027 \\
+\quad Declared retrofit cost (median, 2023 \$) & 132,001 & 138,181 & 110,787 \\
+\multicolumn{4}{l}{\textit{C. Property}} \\
+\quad Market value (median, 2023 \$) & 236,264 & 209,894 & 259,479 \\
+\quad Construction year (median) & 1984 & 1970 & 1997 \\
+\hline
+Number of structures & 3,291,653 & 1,621,850 & 1,669,803 \\
+Number of property-years & 16,590,573 & 7,462,964 & 9,127,609 \\
+\hline
+\end{tabular}
+\begin{minipage}{0.95\linewidth}
+\footnotesize \textit{Notes:} Premium, loss ratio and claim share are over property-years; the
+rest over structures. Pre-FIRM structures were built before their community's first flood map;
+FIRM status is the structure's last observed year. Build of 2026-10-15 (afternoon, with the permit status history).
+Property value and the retrofit permit are observed only for structures matched to an ATTOM
+parcel, and the permit only in county-years with a permit feed. 2023 dollars.
+\end{minipage}
+\end{table}

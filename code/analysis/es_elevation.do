@@ -1,7 +1,6 @@
 /******************************************************************************
 Authors: Anna Li
-Date: 2026-09-17
- 09-22: section 4, the same event study run separately by elevation source (Anna 09-22).
+Date: 2026-10-02
 Description: event study of elevation permits, nfip premiums, and claims
 ******************************************************************************/
 
@@ -32,8 +31,9 @@ log using "`output'/logs/es_elevation.log", replace text name(es_elevation)
 
 * load variables used in the analysis
 use state property_id policy_year flood_zone premium claim ///
-    construction_year post_firm elevation_retrofit elevation_source ///
+    construction_year post_firm elevation_retrofit ///
     elevation_year elevation_cost attom_matched censusblockgroupfips ///
+    nfip_icc /// 10-14
     using "`data'/analysis/analysis.dta", clear
 
 * create county, flood zone, and claim indicator
@@ -54,7 +54,13 @@ restore
 * keep attom-matched homes so treatment can be observed for both groups
 keep if attom_matched == 1
 
-* define treated and never-elevated homes: use harmonized elevation variable
+//10-14 revision: drop homes with an ICC payment from treated and controls alike
+quietly count if !missing(nfip_icc)
+di "ICC home-years dropped: " r(N)
+drop if !missing(nfip_icc)
+drop nfip_icc
+
+* define treated and never-permitted homes: the ATTOM elevation permit
 gen permit = elevation_retrofit
 
 * keep counties with at least one treated home
@@ -175,77 +181,6 @@ foreach y of local outcomes {
         graph save   "`output'/figures/es_elevation_`y'.gph", replace
         graph export "`output'/figures/es_elevation_`y'.png", width(2000) replace
     restore
-}
-
-* =============================================================================
-* 4 event study by elevation source   (09-22)
-* =============================================================================
-
-* same specification, treated homes of one source at a time against all never-elevated homes:
-* 3 = Builty permit (permit year), 1 = NFIP flag flip (re-rating year), 2 = ICC payment (flood year)
-local lab3 permit
-local lab1 flip
-local lab2 icc
-foreach y of local outcomes {
-    local panels_`y'
-}
-foreach s in 3 1 2 {
-    quietly count if home_tag & permit & es_sample & elevation_source == `s'
-    di "Source `s' (`lab`s''): treated homes in event study: " r(N)
-
-    matrix E`s' = J(`=2 * `window' + 1', `=2 * `: word count `outcomes''', 0)
-    local col = 1
-    foreach y of local outcomes {
-        local sample if es_sample & (!permit | elevation_source == `s')
-        if "`y'" == "premium" local sample `sample' & premium > 0 & !missing(premium)
-
-        reghdfe `y' `terms' `sample', absorb(property_id cell) vce(cluster county_id)
-
-        forvalues j = 0/`=2 * `window'' {
-            if `j' - `window' == `ref_period' continue
-            local total = 0
-            local expr
-            foreach g of local cohorts {
-                quietly count if d`g'_`j' & e(sample)
-                if r(N) == 0 continue
-                local total = `total' + r(N)
-                local expr `expr' + `r(N)' * d`g'_`j'
-            }
-            if `total' == 0 continue
-            quietly lincom (`expr') / `total'
-            matrix E`s'[`j' + 1, `col']     = r(estimate)
-            matrix E`s'[`j' + 1, `col' + 1] = r(se)
-        }
-        local col = `col' + 2
-    }
-    matrix rownames E`s' = `rows'
-    matrix colnames E`s' = premium_b premium_se claim_b claim_se any_claim_b any_claim_se
-    di "Source `s' (`lab`s'')"
-    matrix list E`s'
-
-    * one figure per outcome and source; the three sources are then combined per outcome
-    foreach y of local outcomes {
-        local lab `lab`s''
-        preserve
-            clear
-            svmat E`s', names(col)
-            gen t  = _n - `window' - 1
-            gen lo = `y'_b - 1.96 * `y'_se
-            gen hi = `y'_b + 1.96 * `y'_se
-            twoway (rcap lo hi t, lcolor("`blue'")) (scatter `y'_b t, mcolor("`blue'") msymbol(O)), ///
-                yline(0, lcolor(gs8)) xline(-0.5, lpattern(dash) lcolor(gs8)) `opts' legend(off) ///
-                xtitle("Years from elevation") ytitle("`title_`y''") xlabel(-`window'(1)`window') ///
-                subtitle("`lab'", size(medium) color(gs4)) name(g_`y'_`lab', replace)
-            graph save   "`output'/figures/es_elevation_`y'_`lab'.gph", replace
-            graph export "`output'/figures/es_elevation_`y'_`lab'.png", width(2000) replace
-        restore
-        local panels_`y' `panels_`y'' g_`y'_`lab'
-    }
-}
-foreach y of local outcomes {
-    graph combine `panels_`y'', rows(1) ycommon xsize(12) ysize(4) graphregion(color(white))
-    graph save   "`output'/figures/es_elevation_`y'_by_source.gph", replace
-    graph export "`output'/figures/es_elevation_`y'_by_source.png", width(3000) replace
 }
 
 log close es_elevation

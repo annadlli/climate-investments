@@ -43,6 +43,10 @@ foreach st of local states {
         (state zipcode elevated primary_residence post_firm flood_zone premium ///
         policy_cost coverage_building)
 
+    // 10-15 revision: keep the elevation-certificate fields (agreed 09-23)
+    ren (elevationdifference lowestfloorelevation) (elevation_difference lowest_floor_elevation)
+    destring elevation_difference lowest_floor_elevation, replace force
+
     * Create additional variables
     // i) Policy year 
     gen policy_year = real(substr(policyeffectivedate, 1, 4))
@@ -106,7 +110,8 @@ foreach st of local states {
     keep property_id state countycode nfipratedcommunitynumber zipcode censustract ///
         censusblockgroupfips construction_year policy_year flood_zone elevated ///
         primary_residence originalnbdate originalconstructiondate sfha post_firm ///
-        premium policy_cost coverage_building risk_rating_2
+        premium policy_cost coverage_building risk_rating_2 ///
+        elevation_difference lowest_floor_elevation // 
 
     * Label 
     label var property_id              "Property ID"
@@ -129,6 +134,8 @@ foreach st of local states {
     label var policy_cost              "Policy cost incl. fees and surcharges (2023 $)"
     label var coverage_building        "Building insurance coverage (2023 $)"
     label var risk_rating_2            "Priced under Risk Rating 2.0"
+    label var elevation_difference     "Elevation certificate: lowest floor minus base flood elevation (ft)" // 
+    label var lowest_floor_elevation   "Elevation certificate: lowest floor elevation (ft)" // 
 
     * Save
     order state property_id policy_year construction_year post_firm sfha primary_residence ///
