@@ -28,7 +28,7 @@ log using "`output'/logs/same_flood_claims.log", replace text name(same_flood)
 * =============================================================================
 
 use property_id policy_year flood_zone claim construction_year post_firm ///
-    elevation_retrofit elevation_year elevation_cost attom_matched censusblockgroupfips ///
+    elevation_retrofit elevation_year elevation_cost censusblockgroupfips ///
     nfip_icc /// 
     using "`data'/analysis/analysis.dta", clear
 gen countycode = substr(censusblockgroupfips, 1, 5)
@@ -44,9 +44,6 @@ preserve
     tempfile floods
     save `floods'
 restore
-
-* a permit can only attach to an ATTOM-matched home, so unmatched homes cannot be controls
-keep if attom_matched == 1
 
 // 10-14 revision: drop homes with an ICC payment from treated and controls alike
 quietly count if !missing(nfip_icc)

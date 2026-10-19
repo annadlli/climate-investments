@@ -34,7 +34,7 @@ local output "`code'/../output"
 * Locals
 * -----------------------------------------------------------------------------
 
-// States: the panel is built for this list, so a change means rerunning from prep_nfip_policies
+// States: the panel is built for this list
 local states "FL LA TX"
 
 // Dewey/ATTOM acquisition inputs. The manifest is private because it contains
@@ -76,7 +76,7 @@ local merge_datasets                    = 0 // runs all of the torch scripts exc
 local parquet_dta                       = 0 // convert parquet file to Stata
 local attom_value                       = 0 // ATTOM market value for matched properties, every year, 2023 $ (after parquet_dta)
 local attom_value_dta                   = 0 // one Stata copy of the value files
-local complete                          = 0 // compile final analysis dataset 
+local complete                          = 1 // compile final analysis dataset 
 
 // iv) Descriptives
 local summary_table                     = 0 // create summary statistics table

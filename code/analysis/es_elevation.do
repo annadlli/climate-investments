@@ -32,7 +32,7 @@ log using "`output'/logs/es_elevation.log", replace text name(es_elevation)
 * load variables used in the analysis
 use state property_id policy_year flood_zone premium claim ///
     construction_year post_firm elevation_retrofit ///
-    elevation_year elevation_cost attom_matched censusblockgroupfips ///
+    elevation_year elevation_cost censusblockgroupfips ///
     nfip_icc /// 10-14
     using "`data'/analysis/analysis.dta", clear
 
@@ -50,9 +50,6 @@ preserve
     tempfile floods
     save `floods'
 restore
-
-* keep attom-matched homes so treatment can be observed for both groups
-keep if attom_matched == 1
 
 //10-14 revision: drop homes with an ICC payment from treated and controls alike
 quietly count if !missing(nfip_icc)
